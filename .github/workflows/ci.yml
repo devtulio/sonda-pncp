@@ -24,3 +24,20 @@ jobs:
 
       # sonda_core.py e os testes só usam a stdlib (pystray/Pillow/winotify são da bandeja)
       - run: python -m unittest discover -s tests -v
+
+  qualidade:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - run: pip install -r requirements-dev.txt
+
+      # o ruff pega o .pyw via extend-include (pyproject.toml)
+      - run: ruff check .
+
+      # o bandit -r não olha .pyw: os arquivos vão por nome
+      - run: bandit -q -c pyproject.toml sonda_core.py sonda_pncp.pyw

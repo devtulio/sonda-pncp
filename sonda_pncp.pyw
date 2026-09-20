@@ -12,7 +12,7 @@ caso de o ícone estar escondido na área de "ícones ocultos".
 import json
 import os
 import socket
-import subprocess
+import subprocess  # nosec B404
 import sys
 import threading
 from pathlib import Path
@@ -71,7 +71,8 @@ def definir_autostart(ligar):
     ps = (f"$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{q(ATALHO)}');"
           f"$s.TargetPath='{q(pythonw)}';$s.Arguments='\"{q(RAIZ / 'sonda_pncp.pyw')}\"';"
           f"$s.WorkingDirectory='{q(RAIZ)}';$s.Description='Sonda PNCP';$s.Save()")
-    subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+    # só o PowerShell do atalho; script fixo, caminhos da própria sonda com aspas escapadas
+    subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],  # nosec B603 B607
                    capture_output=True, creationflags=core.CREATE_NO_WINDOW, timeout=30)
 
 
@@ -79,7 +80,8 @@ def _notificar(titulo, msg):
     try:
         from winotify import Notification
         Notification(app_id="Sonda PNCP", title=titulo, msg=msg, duration="short").show()
-    except Exception:  # noqa: BLE001 - notificação é acessório, nunca derruba a sonda
+    except Exception:  # noqa: BLE001  # nosec B110
+        # notificação é acessório, nunca derruba a sonda
         pass
 
 
@@ -121,7 +123,7 @@ def bandeja():
         try:
             pasta = core.gerar_relatorio(RAIZ, 7)
             _notificar("Sonda PNCP", f"Relatório gerado: {pasta.name}")
-            os.startfile(pasta)
+            os.startfile(pasta)  # nosec
         except Exception as e:  # noqa: BLE001
             sonda.registrar_erro(e)
 
@@ -135,7 +137,8 @@ def bandeja():
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Verificar agora", lambda _i, _it: sonda.disparar.set(),
                          enabled=lambda _i: not sonda.pausada),
-        pystray.MenuItem("Abrir pasta de logs", lambda _i, _it: os.startfile(RAIZ / "logs")),
+        # os.startfile só abre pastas da própria sonda (logs/relatórios)
+        pystray.MenuItem("Abrir pasta de logs", lambda _i, _it: os.startfile(RAIZ / "logs")),  # nosec
         pystray.MenuItem("Gerar relatório (últimos 7 dias)",
                          lambda _i, _it: threading.Thread(target=gerar, daemon=True).start()),
         pystray.MenuItem("Pausar sonda", lambda _i, _it: sonda.pausar(not sonda.pausada),
@@ -150,7 +153,7 @@ def bandeja():
         while not sonda.parar.is_set():
             try:
                 c, _ = srv.accept()
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 break

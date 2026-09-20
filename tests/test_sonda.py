@@ -1,7 +1,6 @@
 """Testes da Sonda PNCP. Rodar:  .venv\\Scripts\\python -m unittest discover -s tests -v"""
 
 import csv
-import gzip
 import json
 import socket
 import sys
@@ -9,7 +8,7 @@ import tempfile
 import threading
 import time
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -203,7 +202,7 @@ class Base(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.pasta = Path(self._tmp.name)
-        self.relogio = Relogio(datetime(2026, 9, 18, 12, 0, tzinfo=timezone.utc))
+        self.relogio = Relogio(datetime(2026, 9, 18, 12, 0, tzinfo=UTC))
         self.avisos = []
 
     def tearDown(self):
@@ -448,7 +447,7 @@ class TestRelatorio(Base):
             with open(out / nome, encoding="utf-8-sig", newline="") as f:
                 return list(csv.reader(f, delimiter=";"))
 
-        resumo = {(l[1]): l for l in ler("1_resumo_diario.csv")[1:]}
+        resumo = {(linha[1]): linha for linha in ler("1_resumo_diario.csv")[1:]}
         self.assertEqual(resumo["portal"][3:9], ["5", "4", "0", "1", "0", "80,00"])  # 5 rodadas: 1 falha
         self.assertEqual(resumo["api"][4:6], ["4", "1"])  # api: 4 ok + 1 lenta (só na 1ª rodada)
         janelas = ler("2_janelas_de_incidente.csv")[1:]

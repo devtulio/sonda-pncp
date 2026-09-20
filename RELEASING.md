@@ -72,8 +72,9 @@ corrigido mais rápido (Khomh et al.).
 ## 5. Gates antes de qualquer tag
 
 1. `.venv\Scripts\python.exe -m unittest discover -s tests` verde.
-2. Lint e segurança limpos, quando o repositório passar a rodá-los
-   (`ruff check` e `bandit`, como no motor). Hoje o CI roda só os testes.
+2. `ruff check .` e `bandit -q -c pyproject.toml sonda_core.py sonda_pncp.pyw`
+   limpos (o CI roda os dois; o `bandit` recebe os arquivos por nome porque
+   o `-r` não olha `.pyw`).
 3. **Mudança de comportamento exige smoke contra o PNCP real**:
    `.venv\Scripts\python.exe sonda_pncp.pyw --uma-rodada` com o resultado
    de cada alvo coerente com o que o portal está fazendo (ou a falha

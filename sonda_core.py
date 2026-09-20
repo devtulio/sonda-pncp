@@ -15,18 +15,18 @@ import os
 import re
 import shutil
 import socket
-import subprocess
+import subprocess  # nosec B404
 import sys
 import tempfile
 import threading
 import time
 import traceback
 from collections import Counter, defaultdict, deque
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-VERSAO = "1.1.0"
+VERSAO = "1.1.1"
 FALHAS = {"erro_http", "erro_rede", "timeout", "corpo_invalido"}  # falha do lado do alvo
 OKS = {"ok", "lento"}  # resposta válida (lento = válida, porém acima do limiar)
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # armadilha: sem isso pisca janela
@@ -145,9 +145,11 @@ def medir(alvo, cfg):
            "--compressed", "-o", corpo_p, "-D", cab_p, "-w", "%{json}", url]
     m = {"url": url, "curl_exit": -1, "curl_erro": "", "http": 0, "http_versao": "", "ip": "",
          "dns_ms": 0, "tcp_ms": 0, "tls_ms": 0, "ttfb_ms": 0, "total_ms": 0, "bytes": 0,
-         "_conectou": False, "_corpo": b"", "_cab": {}, "_inicio": datetime.now(timezone.utc)}
+         "_conectou": False, "_corpo": b"", "_cab": {}, "_inicio": datetime.now(UTC)}
     try:
-        p = subprocess.run(cmd, capture_output=True, timeout=cfg["timeout_total_s"] + 10,
+        # sem shell; argv montado pela sonda, a URL vem do config.json do próprio usuário
+        p = subprocess.run(cmd,  # nosec B603
+                           capture_output=True, timeout=cfg["timeout_total_s"] + 10,
                            creationflags=CREATE_NO_WINDOW)
         j = {}
         try:
@@ -168,7 +170,7 @@ def medir(alvo, cfg):
                  total_ms=(cfg["timeout_total_s"] + 10) * 1000)
     except OSError as e:  # curl.exe ausente
         m.update(curl_exit=-2, curl_erro=str(e)[:200])
-    m["_fim"] = datetime.now(timezone.utc)
+    m["_fim"] = datetime.now(UTC)
     try:
         with open(corpo_p, "rb") as f:
             m["_corpo"] = f.read(2_000_000)
@@ -284,7 +286,7 @@ class Sonda:
         self.cfg = cfg or carregar_config(pasta)
         self.log = Log(pasta)
         self.medir = medir_fn or medir
-        self.agora = agora_fn or (lambda: datetime.now(timezone.utc))
+        self.agora = agora_fn or (lambda: datetime.now(UTC))
         self.parar = threading.Event()
         self.disparar = threading.Event()
         self.dormir = dormir_fn or (lambda s: self.parar.wait(s))
@@ -309,7 +311,7 @@ class Sonda:
     def _ts(self, a=None):
         a = a or self.agora()
         return {"ts_local": a.astimezone().isoformat(timespec="milliseconds"),
-                "ts_utc": a.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")}
+                "ts_utc": a.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")}
 
     def evento(self, nome, **campos):
         self.log.escrever({"tipo": "evento", **self._ts(), "evento": nome, **campos})
@@ -477,7 +479,7 @@ class Sonda:
                "modo": "incidente" if self.incidente else "normal", "streak_falha": self.streak,
                "duracao_ms": round((time.monotonic() - t0) * 1000), "proxima_em_s": res}
         self.log.escrever(rec)
-        self._r24.append((agora.astimezone(timezone.utc), estado))
+        self._r24.append((agora.astimezone(UTC), estado))
         self.ultima = rec
         self.ultimo_wall = fim
         self.proximo_esperado_s = res
@@ -674,7 +676,7 @@ def gerar_relatorio(pasta, dias=7, agora=None):
     _csv(out / "4_cobertura_diaria.csv", ["Data", "Rodadas registradas", "Rodadas esperadas", "Cobertura %"], linhas)
     linhas = []
     limite = timedelta(seconds=cfg["intervalo_normal_s"] * cfg["limite_lacuna_x_intervalo"] + cfg["timeout_total_s"])
-    for a, b in zip(rodadas, rodadas[1:]):
+    for a, b in zip(rodadas, rodadas[1:], strict=False):
         ta, tb = datetime.fromisoformat(a["ts_utc"]), datetime.fromisoformat(b["ts_utc"])
         if tb - ta > limite:
             ev = [e for e in eventos if e["evento"] in ("retomada_apos_lacuna", "sonda_iniciada", "pausada")
@@ -719,7 +721,7 @@ def _grafico_svg(sondas, rodadas, alvos, timeout_s):
     teto = timeout_s
     for i, a in enumerate(alvos):
         top = y0 + i * (alt + gap)
-        y = lambda ms: top + alt - min(ms / 1000, teto) / teto * alt  # noqa: E731
+        y = lambda ms, top=top: top + alt - min(ms / 1000, teto) / teto * alt  # noqa: E731
         partes.append(f'<text x="0" y="{top - 6}" font-size="11" font-weight="600" fill="#111">{esc(a["nome"])}</text>')
         partes.append(f'<rect x="{L}" y="{top}" width="{W - L - R}" height="{alt}" fill="none" stroke="#ccc"/>')
         for v in (10, 20, teto):
@@ -791,7 +793,6 @@ def _resumo_html(out, cfg, ini, fim, sondas, rodadas, janelas, n_lacunas):
         conf = sum(1 for r in rodadas if r["alvos"].get(a["id"]) in FALHAS)
         blips = sum(1 for r in rodadas if r["alvos"].get(a["id"]) == "blip")
         lat = [s["total_ms"] for s in s1 if s["resultado"] in OKS]
-        lim = a.get("limiar_lento_ms", 5000)
         linhas.append(f"<tr><td>{esc(a['nome'])}</td><td>{len(s1)}</td>"
                       f"<td>{br(100 * val / (val + fal1)) if val + fal1 else '-'}</td><td>{fal1}</td>"
                       f"<td>{blips}</td><td>{conf}</td><td>{c['lento']}</td><td>{c['bloqueio_429']}</td>"
@@ -826,7 +827,8 @@ desligado ou suspenso. Ausência de registro não é contada como disponibilidad
 {''.join(linhas)}</table>
 <p class="nota">Falha = erro HTTP, erro de rede, tempo esgotado ({cfg['timeout_total_s']} s) ou corpo inválido.
 Falha repete após {cfg['retry_apos_falha_s']} s; "confirmada" = falhou também na 2ª tentativa. Disponibilidade =
-(ok + lentas) / (ok + lentas + falhas); HTTP 429 fica fora (limitação, não queda). Latências (p50/p95/máx) só de respostas válidas.
+(ok + lentas) / (ok + lentas + falhas); HTTP 429 fica fora (limitação, não queda). Latências (p50/p95/máx) só de
+respostas válidas.
 "Demora &gt; X s" = parcela das medições (respostas válidas + tempos esgotados) que levaram mais de X segundos:
 mostra o serviço que "responde, mas tarde", que a disponibilidade sozinha esconde.
 Controles (Google, Cloudflare) medidos a cada rodada; se ambos caem, a rodada é descartada como "sem rede local".</p>

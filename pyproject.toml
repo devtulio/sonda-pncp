@@ -1,0 +1,11 @@
+# Só configuração de ferramentas (a sonda não é um pacote instalável).
+[tool.ruff]
+line-length = 130
+target-version = "py311"
+extend-include = ["*.pyw"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP"]
+
+[tool.bandit]
+exclude_dirs = [".venv", "tests"]

@@ -2,6 +2,25 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
+## [1.1.1] — 2026-09-20
+
+Lint e análise de segurança entram no CI. Sem mudança de comportamento:
+o que mudou no código é refatoração neutra pedida pelo `ruff`. Smoke real
+(`--uma-rodada` contra o PNCP) e os 30 testes verdes.
+
+### Added (CI; sem efeito na API)
+- Job `qualidade` no CI: `ruff check .` e `bandit` (`pyproject.toml`,
+  `requirements-dev.txt`). Os dois passam a valer também para o
+  `sonda_pncp.pyw`, que o `ruff` e o `bandit -r` não varrem por padrão
+  (`extend-include` e arquivos passados por nome).
+
+### Changed
+- `datetime.UTC` no lugar de `timezone.utc`; `zip(..., strict=False)`;
+  `TimeoutError` no lugar de `socket.timeout`; variável sem uso removida;
+  `# nosec` (com a justificativa ao lado) nas chamadas intencionais de
+  `subprocess` e `os.startfile`, que só tocam o `curl.exe`, o PowerShell do
+  atalho de início automático e pastas da própria sonda.
+
 ## [1.1.0] — 2026-09-20
 
 Primeiro lote depois da 1.0.0, no mesmo dia: o relatório passa a servir
