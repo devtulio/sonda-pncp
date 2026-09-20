@@ -11,6 +11,7 @@ Regras completas em [RELEASING.md](RELEASING.md).
 
 - [Como funciona](#como-funciona)
 - [Alvos](#alvos)
+- [Órgão e compra de teste](#órgão-e-compra-de-teste)
 - [Classificação de cada medição](#classificação-de-cada-medição)
 - [Estados, cores e modos](#estados-cores-e-modos)
 - [Bandeja e linha de comando](#bandeja-e-linha-de-comando)
@@ -64,11 +65,52 @@ Definidos em `config.json` (chave `alvos`). Os padrões:
 | `api_itens` | api | `/api/pncp/v1/orgaos/{cnpj}/compras/{ano}/{seq}/itens` (1 compra fixa) | lista JSON |
 
 Todas as consultas de API pedem `pagina=1&tamanhoPagina=10` — a sonda
-mede a **resposta**, não coleta volume. O CNPJ e a compra usados são de
-teste e podem ser trocados no `config.json`.
+mede a **resposta**, não coleta volume. Quatro alvos (contratos, atas, PCA e
+itens) precisam apontar para um órgão e, no caso dos itens, para uma compra: a
+sonda usa um **órgão de teste** e uma **compra de teste**, que você troca em
+uma linha do `config.json` — ver [Órgão e compra de teste](#órgão-e-compra-de-teste).
 
-Placeholders aceitos nas URLs: `{hoje}`, `{ontem}`, `{d7}`, `{d30}`,
-`{ini_ano}` (formato `AAAAMMDD`, calculados na hora da medição).
+Marcadores aceitos nas URLs:
+- datas, no formato `AAAAMMDD`, calculadas na hora da medição: `{hoje}`,
+  `{ontem}`, `{d7}`, `{d30}`, `{ini_ano}`;
+- `{cnpj}`, `{ano_compra}` e `{seq_compra}`: valem `cnpj_teste` e
+  `compra_teste.ano`/`compra_teste.sequencial` do `config.json`.
+
+Uma URL sem marcadores (por exemplo, com o CNPJ escrito direto) continua
+funcionando: os marcadores são só uma comodidade.
+
+### Órgão e compra de teste
+
+Os alvos padrão `api_contratos`, `api_atas`, `api_pca` e `api_itens` usam os
+marcadores acima. Para medir outro órgão, edite duas chaves do `config.json`
+e reinicie a sonda:
+
+```json
+"cnpj_teste": "00.000.000/0001-00",
+"compra_teste": {"ano": 2026, "sequencial": 123}
+```
+
+- `cnpj_teste`: aceita com ou sem pontuação (a sonda guarda só os 14 dígitos)
+  e recusa outro tamanho na partida, com uma mensagem que diz o problema em
+  vez de deixar os alvos falharem com 404.
+- `compra_teste`: uma compra desse órgão que **exista no PNCP** e não vá
+  sumir (prefira uma antiga e homologada). Para achar uma, consulte as
+  contratações do órgão e leia `anoCompra` e `sequencialCompra` de qualquer
+  item da resposta:
+
+  ```bat
+  curl.exe -s -A "Mozilla/5.0" "https://pncp.gov.br/api/consulta/v1/contratacoes/publicacao?dataInicial=20260901&dataFinal=20260920&codigoModalidadeContratacao=6&cnpj=SEU_CNPJ&pagina=1&tamanhoPagina=10"
+  ```
+
+  Se vier vazio, tente outra modalidade (`codigoModalidadeContratacao`) ou
+  um período maior. Se a compra escolhida sumir depois, a sonda avisa com
+  [registro ausente](#registro-ausente) e não conta como queda.
+
+**`config.json` antigo:** quem já tem o arquivo e nunca mexeu nos alvos ganha
+as duas chaves com os valores padrão, mas mantém as URLs antigas (a chave
+`alvos` do arquivo substitui a lista padrão). Para passar a usar os
+marcadores, apague a chave `alvos` do `config.json` — a sonda volta a usar a
+lista padrão, com as mesmas URLs — e reinicie.
 
 Campos de cada alvo: `id`, `nome`, `tipo` (`controle` / `portal` / `api`),
 `validar` (`status`, `html`, `json_data`, `json_lista`), `url`,
@@ -185,6 +227,8 @@ um `config.json` que já existe: edite o arquivo.
 | `iniciar_com_windows` | `true` | Cria o atalho de início automático na 1ª execução. |
 | `porta_instancia` | `48650` | Porta loopback da instância única. |
 | `user_agent` | (navegador + `SondaPNCP/1.0`) | UA enviado em toda medição. |
+| `cnpj_teste` | `83102277000152` | Órgão usado em `{cnpj}` nas URLs de contratos, atas, PCA e itens. |
+| `compra_teste` | `{"ano": 2026, "sequencial": 495}` | Compra usada em `{ano_compra}`/`{seq_compra}` (alvo `api_itens`). |
 | `alvos` | (tabela acima) | Lista de alvos. |
 
 Os limiares `limiar_lento_ms` iniciais são **folgados de propósito**
@@ -354,7 +398,7 @@ derrubar a sonda. O toast mostra só a primeira linha da mensagem.
   notificações do app "Sonda PNCP" desativadas em Configurações → Sistema →
   Notificações.
 - **Um alvo aparece sempre como falha ou registro ausente:** confira a URL
-  no navegador; troque o registro fixo do `api_itens` se ele sumiu.
+  no navegador; troque a `compra_teste` (ver [Órgão e compra de teste](#órgão-e-compra-de-teste)) se ela sumiu.
 - **Reiniciar:** *Encerrar* pelo menu (ou `--encerrar`) e abrir de novo.
   Cria uma lacuna de segundos, registrada.
 
@@ -364,7 +408,7 @@ derrubar a sonda. O toast mostra só a primeira linha da mensagem.
 .venv\Scripts\python.exe -m unittest discover -s tests
 ```
 
-34 testes: a medição usa o `curl.exe` de verdade contra um servidor HTTP
+38 testes: a medição usa o `curl.exe` de verdade contra um servidor HTTP
 falso local (200, 204, 429, 503, 404, timeout, corpo inválido, conexão
 derrubada/recusada/DNS); a máquina de estados, as lacunas, o encerramento
 no meio da rodada, o registro ausente e o relatório rodam com relógio e

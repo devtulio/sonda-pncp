@@ -14,7 +14,8 @@ Só isto é coberto pelo número de versão:
   imprimem.
 - **`config.json`**: nome, significado e tipo de cada chave e dos campos
   de cada alvo (`id`, `tipo`, `validar`, `url`, `limiar_lento_ms`,
-  `accept`, `ausencia_404`); os placeholders de URL.
+  `accept`, `ausencia_404`); os marcadores de URL (`{hoje}`, `{cnpj}`, `{ano_compra}`,
+  `{seq_compra}`, ...); as chaves `cnpj_teste` e `compra_teste`.
 - **Formato do log** (`logs/sonda-AAAA-MM-DD.jsonl`): o nome e a
   organização dos arquivos, os campos de cada `tipo` (`sonda`, `rodada`,
   `evento`), os valores de `resultado`, `estado`, `cor`, `modo` e `evento`.

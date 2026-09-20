@@ -26,14 +26,13 @@ from datetime import datetime, timedelta, UTC
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-VERSAO = "1.3.0"
+VERSAO = "1.4.0"
 FALHAS = {"erro_http", "erro_rede", "timeout", "corpo_invalido"}  # falha do lado do alvo
 OKS = {"ok", "lento"}  # resposta válida (lento = válida, porém acima do limiar)
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # armadilha: sem isso pisca janela
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
       "Chrome/120.0 Safari/537.36 SondaPNCP/1.0")
-CNPJ_TESTE = "83102277000152"
 _API = "https://pncp.gov.br/api/consulta/v1"
 _PNCP = "https://pncp.gov.br/api/pncp/v1"
 
@@ -51,15 +50,15 @@ ALVOS_PADRAO = [
             "&codigoModalidadeContratacao=6&pagina=1&tamanhoPagina=10", "limiar_lento_ms": 5000},
     {"id": "api_contratos", "nome": "API consulta: contratos", "tipo": "api", "validar": "json_data",
      "url": f"{_API}/contratos/atualizacao?dataInicial={{d30}}&dataFinal={{hoje}}"
-            f"&cnpjOrgao={CNPJ_TESTE}&pagina=1&tamanhoPagina=10", "limiar_lento_ms": 12000},
+            f"&cnpjOrgao={{cnpj}}&pagina=1&tamanhoPagina=10", "limiar_lento_ms": 12000},
     {"id": "api_atas", "nome": "API consulta: atas", "tipo": "api", "validar": "json_data",
      "url": f"{_API}/atas/atualizacao?dataInicial={{d30}}&dataFinal={{hoje}}"
-            f"&cnpj={CNPJ_TESTE}&pagina=1&tamanhoPagina=10", "limiar_lento_ms": 6000},
+            "&cnpj={cnpj}&pagina=1&tamanhoPagina=10", "limiar_lento_ms": 6000},
     {"id": "api_pca", "nome": "API consulta: PCA", "tipo": "api", "validar": "json_data",
      "url": f"{_API}/pca/atualizacao?dataInicio={{ini_ano}}&dataFim={{hoje}}"
-            f"&cnpj={CNPJ_TESTE}&pagina=1&tamanhoPagina=10", "limiar_lento_ms": 20000},
+            "&cnpj={cnpj}&pagina=1&tamanhoPagina=10", "limiar_lento_ms": 20000},
     {"id": "api_itens", "nome": "API pncp: itens da compra", "tipo": "api", "validar": "json_lista",
-     "url": f"{_PNCP}/orgaos/{CNPJ_TESTE}/compras/2026/495/itens?pagina=1&tamanhoPagina=10",
+     "url": f"{_PNCP}/orgaos/{{cnpj}}/compras/{{ano_compra}}/{{seq_compra}}/itens?pagina=1&tamanhoPagina=10",
      "limiar_lento_ms": 20000, "ausencia_404": "Contratação não cadastrada"},
 ]
 
@@ -78,6 +77,8 @@ CONFIG_PADRAO = {
     "iniciar_com_windows": True,
     "porta_instancia": 48650,
     "user_agent": UA,
+    "cnpj_teste": "83102277000152",  # órgão usado nas consultas de contratos, atas, PCA e itens
+    "compra_teste": {"ano": 2026, "sequencial": 495},  # compra usada em api_itens (tem de existir no PNCP)
     "alvos": ALVOS_PADRAO,
 }
 
@@ -96,7 +97,20 @@ def carregar_config(pasta):
         cfg.update(json.loads(arq.read_text(encoding="utf-8")))
     else:
         arq.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+    _validar_teste(cfg)
     return cfg
+
+
+def _validar_teste(cfg):
+    """Normaliza `cnpj_teste` (aceita com pontuação) e confere `compra_teste`; erro claro em vez de 404 misterioso."""
+    cnpj = re.sub(r"\D", "", str(cfg["cnpj_teste"]))
+    if len(cnpj) != 14:
+        raise ValueError(f"config.json: cnpj_teste deve ter 14 dígitos (veio {cfg['cnpj_teste']!r})")
+    cfg["cnpj_teste"] = cnpj
+    try:
+        cfg["compra_teste"] = {"ano": int(cfg["compra_teste"]["ano"]), "sequencial": int(cfg["compra_teste"]["sequencial"])}
+    except (KeyError, TypeError, ValueError) as e:
+        raise ValueError('config.json: compra_teste deve ser {"ano": 2026, "sequencial": 495}') from e
 
 
 def salvar_config_chave(pasta, chave, valor):
@@ -108,9 +122,13 @@ def salvar_config_chave(pasta, chave, valor):
 
 # ───────────────────────── medição ─────────────────────────
 
-def expandir_url(url, agora=None):
+def expandir_url(url, agora=None, cfg=None):
+    """Troca os marcadores da URL: datas ({hoje}, {ontem}, {d7}, {d30}, {ini_ano}) e o órgão/compra de teste
+    ({cnpj}, {ano_compra}, {seq_compra}), lidos de `cnpj_teste`/`compra_teste` do config."""
     a = (agora or datetime.now()).astimezone()
-    return url.format(hoje=a.strftime("%Y%m%d"),
+    cfg = cfg or CONFIG_PADRAO
+    return url.format(cnpj=cfg["cnpj_teste"], ano_compra=cfg["compra_teste"]["ano"],
+                      seq_compra=cfg["compra_teste"]["sequencial"], hoje=a.strftime("%Y%m%d"),
                       ontem=(a - timedelta(days=1)).strftime("%Y%m%d"),
                       d7=(a - timedelta(days=7)).strftime("%Y%m%d"),
                       d30=(a - timedelta(days=30)).strftime("%Y%m%d"),
@@ -135,7 +153,7 @@ def _parse_cabecalhos(texto):
 
 def medir(alvo, cfg):
     """Uma medição via `curl.exe`. Devolve o dicionário bruto (ainda sem classificar)."""
-    url = expandir_url(alvo["url"])
+    url = expandir_url(alvo["url"], cfg=cfg)
     tmp = tempfile.mkdtemp(prefix="sonda_")
     corpo_p, cab_p = os.path.join(tmp, "corpo"), os.path.join(tmp, "cab")
     curl = shutil.which("curl.exe") or r"C:\Windows\System32\curl.exe"
@@ -364,7 +382,7 @@ class Sonda:
             self.evento("registro_ausente", alvo=alvo["id"], url=m["url"])
             if self.cfg["notificar"]:
                 self.notificar("Sonda PNCP: registro de teste sumiu",
-                               f"{alvo['nome']}: trocar o registro fixo no config.json (não conta como falha).")
+                               f"{alvo['nome']}: trocar compra_teste no config.json (não conta como falha).")
         elif resultado != "registro_ausente":
             self.ausentes.discard(alvo["id"])
         return resultado

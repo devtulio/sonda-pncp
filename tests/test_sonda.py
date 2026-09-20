@@ -460,6 +460,40 @@ class TestGraficoBarras(unittest.TestCase):
                          ["ok", "ok", "lento", "lento", "falha", "vazio"])
 
 
+class TestOrgaoDeTeste(Base):
+    def test_padrao_gera_as_mesmas_urls_de_sempre(self):
+        itens = [x for x in core.ALVOS_PADRAO if x["id"] == "api_itens"][0]
+        self.assertEqual(core.expandir_url(itens["url"]),
+                         "https://pncp.gov.br/api/pncp/v1/orgaos/83102277000152/compras/2026/495/itens"
+                         "?pagina=1&tamanhoPagina=10")
+        atas = [x for x in core.ALVOS_PADRAO if x["id"] == "api_atas"][0]
+        self.assertIn("&cnpj=83102277000152&", core.expandir_url(atas["url"]))
+
+    def test_trocar_orgao_e_compra_muda_todas_as_urls_que_usam_marcador(self):
+        cfg = cfg_teste(cnpj_teste="11222333000181", compra_teste={"ano": 2025, "sequencial": 7})
+        urls = {x["id"]: core.expandir_url(x["url"], cfg=cfg) for x in core.ALVOS_PADRAO}
+        for alvo_id in ("api_contratos", "api_atas", "api_pca", "api_itens"):
+            self.assertIn("11222333000181", urls[alvo_id])
+            self.assertNotIn("83102277000152", urls[alvo_id])
+        self.assertIn("/compras/2025/7/itens", urls["api_itens"])
+
+    def test_url_fixa_de_config_antigo_continua_valendo(self):
+        fixa = "https://pncp.gov.br/api/consulta/v1/atas/atualizacao?cnpj=99999999000191&pagina=1"
+        self.assertEqual(core.expandir_url(fixa, cfg=cfg_teste()), fixa)
+
+    def test_config_normaliza_cnpj_com_pontuacao_e_recusa_valor_ruim(self):
+        (self.pasta / "config.json").write_text(json.dumps(
+            {"cnpj_teste": "11.222.333/0001-81", "compra_teste": {"ano": "2025", "sequencial": "7"}}), encoding="utf-8")
+        cfg = core.carregar_config(self.pasta)
+        self.assertEqual((cfg["cnpj_teste"], cfg["compra_teste"]), ("11222333000181", {"ano": 2025, "sequencial": 7}))
+        (self.pasta / "config.json").write_text(json.dumps({"cnpj_teste": "123"}), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "14 dígitos"):
+            core.carregar_config(self.pasta)
+        (self.pasta / "config.json").write_text(json.dumps({"compra_teste": {"ano": 2026}}), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "compra_teste"):
+            core.carregar_config(self.pasta)
+
+
 class TestRelatorio(Base):
     def test_disponibilidade_janelas_ocorrencias_e_lacunas(self):
         # portal, 1ª tentativa nas 5 rodadas: ok, ok, 503 (+retry 503), ok, ok → 4/5 = 80%

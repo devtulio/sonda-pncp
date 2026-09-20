@@ -79,7 +79,11 @@ Na primeira execução a sonda cria o `config.json` com os padrões e
 registra o início automático com o Windows (atalho na pasta Startup do
 usuário, sem administrador; desligável no menu).
 
-Testes: `.venv\Scripts\python.exe -m unittest discover -s tests` (34
+Para medir o **seu** órgão em vez do de teste, troque `cnpj_teste` e
+`compra_teste` no `config.json` (o [MANUAL](MANUAL.md#órgão-e-compra-de-teste)
+mostra como achar uma compra).
+
+Testes: `.venv\Scripts\python.exe -m unittest discover -s tests` (38
 testes — medição real via `curl.exe` contra servidor HTTP falso,
 classificação de erros, máquina de estados, lacunas, relatório).
 

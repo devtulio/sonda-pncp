@@ -2,6 +2,30 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
+## [1.4.0] — 2026-09-20
+
+O órgão e a compra usados nos alvos de contratos, atas, PCA e itens deixam
+de estar escritos dentro das URLs: o repositório é público e cada usuário
+quer medir o seu órgão. Trocar passa a ser editar duas chaves. Validado contra
+o PNCP real (os 4 alvos respondem pelas URLs geradas dos marcadores).
+
+### Added
+- Chaves `cnpj_teste` (padrão `83102277000152`, aceita pontuação) e
+  `compra_teste` (`{"ano": 2026, "sequencial": 495}`) no `config.json`.
+- Marcadores `{cnpj}`, `{ano_compra}` e `{seq_compra}` nas URLs dos alvos;
+  os alvos padrão passam a usá-los. Uma URL sem marcadores continua valendo.
+- Validação na partida: `cnpj_teste` com outro tamanho que 14 dígitos ou
+  `compra_teste` malformado interrompem com mensagem clara em vez de virar
+  404 nos alvos.
+- MANUAL: seção "Órgão e compra de teste" (como escolher e como achar uma
+  compra que exista).
+
+### Changed
+- A notificação de registro ausente manda trocar `compra_teste`.
+- `config.json` já existente **não muda de comportamento**: mantém as URLs
+  antigas (a chave `alvos` do arquivo substitui a lista padrão). Para usar os
+  marcadores, apague a chave `alvos` (MANUAL, "config.json antigo").
+
 ## [1.3.0] — 2026-09-20
 
 O campo de identificação do resumo para o chamado passa a ser preenchido
