@@ -2,6 +2,22 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
+## [1.3.0] — 2026-09-20
+
+O campo de identificação do resumo para o chamado passa a ser preenchido
+direto no HTML, sem editar arquivo nem configuração: o repositório é público
+e cada usuário tem a sua identificação. Validado com o relatório real.
+
+### Added
+- Campo **Solicitante** editável na página (`contenteditable`), lembrado no
+  `localStorage` do navegador (`sonda_pncp_solicitante`); aviso vermelho
+  enquanto vazio, inclusive na impressão. Se o navegador bloquear o
+  armazenamento, o campo continua editável, só não é lembrado.
+
+### Changed
+- O texto fixo `Solicitante: [preencher identificação antes de anexar]` foi
+  substituído por esse campo.
+
 ## [1.2.0] — 2026-09-20
 
 O gráfico do resumo para o chamado foi refeito no padrão de faixas de

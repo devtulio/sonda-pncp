@@ -500,7 +500,8 @@ class TestRelatorio(Base):
         self.assertIn("Operacional", html_)
         self.assertNotIn("e mais", html_)  # 1 janela: nada truncado
         pg = (out / "resumo_para_chamado.html").read_text(encoding="utf-8")
-        self.assertIn("preencher identificação", pg)
+        self.assertIn('id="solicitante" contenteditable="true"', pg)  # campo editável direto no HTML
+        self.assertIn("preencha a identificação", pg)  # aviso vermelho enquanto estiver vazio
         self.assertIn("<td>80,00</td>", pg)  # disponibilidade do portal, igual ao CSV
         self.assertIn("1 lacuna", pg)
         self.assertIn("banco de dados", pg)  # trecho da resposta do PNCP nos exemplos

@@ -279,7 +279,12 @@ Página única, imprimível em A4, autocontida (SVG inline, sem dependências):
     são `LIMIARES_ROTULO` em `sonda_core.py` (podem ser recalibrados).
 - **Janelas de incidente** (até 12; o CSV tem todas), **exemplos de falha**
   (até 8) e **método**.
-- O campo `Solicitante: [preencher identificação antes de anexar]`.
+- O campo **Solicitante**, editável direto na página: clique, digite e imprima ou
+  salve em PDF. O texto fica no `localStorage` do navegador (chave
+  `sonda_pncp_solicitante`), então relatórios seguintes, gerados no mesmo
+  navegador, já abrem identificados; se o navegador bloquear o armazenamento,
+  o campo continua editável, só não é lembrado. Enquanto vazio, mostra um aviso
+  vermelho (impresso também: é de propósito, para não anexar sem identificação).
 
 ### CSVs
 

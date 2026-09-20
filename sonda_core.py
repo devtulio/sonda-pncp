@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, UTC
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-VERSAO = "1.2.0"
+VERSAO = "1.3.0"
 FALHAS = {"erro_http", "erro_rede", "timeout", "corpo_invalido"}  # falha do lado do alvo
 OKS = {"ok", "lento"}  # resposta válida (lento = válida, porém acima do limiar)
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # armadilha: sem isso pisca janela
@@ -812,7 +812,10 @@ table{border-collapse:collapse;width:100%;font-size:12.5px}
 th,td{border:1px solid #bbb;padding:3px 6px;text-align:right}
 th{background:#eee}
 td:first-child,th:first-child{text-align:left}
-.pre{color:#b00;font-weight:600}
+.id{margin:10px 0}
+.id span{display:inline-block;min-width:22em;border-bottom:1px dashed #888;outline:none}
+.id span:empty::before{content:attr(data-ph);color:#b00;font-weight:600}
+.id small{color:#666;margin-left:8px}
 .meta{color:#444}
 .nota{font-size:12.5px;color:#333}
 .card{border:1px solid #f0c8c8;border-left:5px solid #dc2626;border-radius:12px;padding:10px 16px;display:flex;
@@ -840,6 +843,7 @@ border-bottom:1px dotted #ddd;break-inside:avoid}
 body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 @page{size:A4;margin:14mm}
 @media print{body{margin:0;max-width:none}
+.id span{border:0}.id small{display:none}
 h2{break-after:avoid}
 tr{break-inside:avoid}}
 """
@@ -888,7 +892,18 @@ def _resumo_html(out, cfg, ini, fim, sondas, rodadas, janelas, n_lacunas):
 <h1>Disponibilidade do PNCP - medição independente</h1>
 <p class="meta">Período: {ini:%d/%m/%Y} a {fim:%d/%m/%Y} · gerado em {datetime.now():%d/%m/%Y %H:%M} ·
 Sonda PNCP v{VERSAO}, host {esc(socket.gethostname())}</p>
-<p class="pre">Solicitante: [preencher identificação antes de anexar]</p>
+<p class="id"><b>Solicitante:</b> <span id="solicitante" contenteditable="true" spellcheck="false"
+data-ph="[clique aqui e preencha a identificação antes de anexar]"></span>
+<small>(campo editável; o navegador lembra o texto nos próximos relatórios)</small></p>
+<script>
+(function () {{
+  var el = document.getElementById("solicitante"), k = "sonda_pncp_solicitante";
+  try {{ el.textContent = localStorage.getItem(k) || ""; }} catch (e) {{}}
+  el.addEventListener("input", function () {{
+    try {{ localStorage.setItem(k, el.textContent.trim()); }} catch (e) {{}}
+  }});
+}})();
+</script>
 <h2>Cobertura</h2>
 <p>{len(rodadas)} rodadas registradas (de ~{round(esperadas)} esperadas entre a primeira e a última, a cada
 {cfg['intervalo_normal_s'] // 60} min), de {_fmt(primeira) or '-'} a {_fmt(ultima) or '-'}; {n_lacunas} lacuna(s) por PC

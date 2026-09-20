@@ -54,7 +54,9 @@ fragmenta nada:
   disponibilidade e latência por serviço, faixas de barras de
   estado/latência por serviço (como o statuslicitacoes), janelas de incidente, exemplos de falha com o horário
   do erro segundo o próprio PNCP e o método. Traz o campo
-  `[preencher identificação antes de anexar]` — nada é enviado sozinho.
+  `Solicitante`, um campo **editável direto na página** (clique, digite, imprima);
+  o navegador lembra o texto nos próximos relatórios. Vazio, mostra um aviso
+  vermelho — nada é enviado sozinho.
 - 5 CSVs (`;`, UTF-8 com BOM, abrem direto no Excel): resumo diário,
   janelas de incidente, ocorrências, cobertura diária e lacunas.
 
