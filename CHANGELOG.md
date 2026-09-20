@@ -2,6 +2,30 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
+## [1.2.0] — 2026-09-20
+
+O gráfico do resumo para o chamado foi refeito no padrão de faixas de
+barras do statuslicitacoes.com.br (uma linha por serviço, barra = amostra,
+cor = estado, altura = latência). Validado com o relatório real e com 7
+dias de log sintético renderizados no navegador.
+
+### Added
+- Cartão do período no topo do gráfico: contagem de serviços por rótulo
+  (operacional / com problemas / instável / sem dados) e selo geral.
+- Rótulo por serviço no período: disponibilidade ≥ 99% *Operacional*, ≥ 95%
+  *Com problemas*, abaixo *Instável* (`LIMIARES_ROTULO`, recalibrável).
+- Falha hachurada além de vermelha: o gráfico continua legível em preto e
+  branco. Tooltip em cada barra.
+
+### Changed
+- O gráfico de pontos por serviço foi **substituído** pelas faixas de
+  barras. A largura da barra acompanha o período coberto pelos dados (5 min
+  até ~25 h; 1 h até ~12 dias; 6 h; 1 dia). Cor de um intervalo maior que uma
+  rodada: vermelho se ≥ 25% das medições falharam, âmbar se houve falha ou
+  ≥ 25% lentas. Intervalo sem medição fica sem barra (lacuna visível).
+- A tabela de janelas de incidente do HTML mostra no máximo 12 linhas e
+  aponta para o CSV, que continua completo.
+
 ## [1.1.1] — 2026-09-20
 
 Lint e análise de segurança entram no CI. Sem mudança de comportamento:

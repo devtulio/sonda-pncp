@@ -432,6 +432,34 @@ class TestDemora(unittest.TestCase):
         self.assertEqual(core._demora([x("erro_http", 50)], 10), "")
 
 
+class TestGraficoBarras(unittest.TestCase):
+    def test_granularidade_acompanha_o_periodo(self):
+        self.assertEqual(core._granularidade(3600, 300)[0], 300)  # 1 h: 12 barras de 5 min
+        self.assertEqual(core._granularidade(24 * 3600, 300)[0], 300)  # 1 dia: 288 barras
+        self.assertEqual(core._granularidade(7 * 86400, 300)[0], 3600)  # 7 dias: 168 barras de 1 h
+        self.assertEqual(core._granularidade(30 * 86400, 300)[0], 6 * 3600)  # 30 dias: 120 barras de 6 h
+        self.assertEqual(core._granularidade(200 * 86400, 300)[0], 86400)
+
+    def test_cor_do_balde(self):
+        self.assertEqual(core._cor_do_balde(12, 3, 0, 0), "falha")  # 25% falhou
+        self.assertEqual(core._cor_do_balde(12, 2, 0, 0), "lento")  # alguma falha, menos de 25%
+        self.assertEqual(core._cor_do_balde(12, 0, 3, 0), "lento")  # 25% lentas
+        self.assertEqual(core._cor_do_balde(12, 0, 2, 0), "ok")
+        self.assertEqual(core._cor_do_balde(2, 0, 0, 2), "429")
+        self.assertEqual(core._cor_do_balde(1, 1, 0, 0), "falha")  # 1 medição = a própria cor
+
+    def test_baldes_falha_vira_teto_e_429_fica_fora_da_latencia(self):
+        med = [(0, "ok", 500), (10, "timeout", 30000), (400, "ok", 200), (410, "bloqueio_429", 50)]
+        b = core._baldes(med, 0, 300, 30)
+        self.assertEqual(sorted(b), [0, 1])  # 2 baldes de 5 min; só existe balde com dado
+        self.assertEqual((b[0][0], b[0][1], b[0][2:]), ("falha", 30, (2, 1, 0)))  # p95 = teto por causa do timeout
+        self.assertEqual((b[1][0], b[1][1]), ("ok", 0.2))  # o 429 não entra na latência
+
+    def test_rotulo_do_periodo(self):
+        self.assertEqual([core._rotulo(x) for x in (100, 99, 98.9, 95, 94.9, None)],
+                         ["ok", "ok", "lento", "lento", "falha", "vazio"])
+
+
 class TestRelatorio(Base):
     def test_disponibilidade_janelas_ocorrencias_e_lacunas(self):
         # portal, 1ª tentativa nas 5 rodadas: ok, ok, 503 (+retry 503), ok, ok → 4/5 = 80%
@@ -464,6 +492,13 @@ class TestRelatorio(Base):
         agora = self.relogio.t + timedelta(minutes=1)
         self.assertEqual(core.gerar_relatorio(self.pasta, dias=3, agora=agora + timedelta(hours=2)), out)  # mesmo dia
         self.assertEqual(len(list((self.pasta / "relatorios").iterdir())), 1)
+        html_ = (out / "resumo_para_chamado.html").read_text(encoding="utf-8")
+        self.assertIn("PNCP — 6 serviços monitorados", html_)  # o relatório lê os alvos do config da pasta
+        self.assertIn("5 sem dados", html_)  # só o portal tem medição neste teste
+        self.assertIn("1 barra = 5 min", html_)
+        self.assertIn("url(#hach)", html_)  # falha hachurada
+        self.assertIn("Operacional", html_)
+        self.assertNotIn("e mais", html_)  # 1 janela: nada truncado
         pg = (out / "resumo_para_chamado.html").read_text(encoding="utf-8")
         self.assertIn("preencher identificação", pg)
         self.assertIn("<td>80,00</td>", pg)  # disponibilidade do portal, igual ao CSV

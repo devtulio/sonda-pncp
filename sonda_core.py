@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, UTC
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-VERSAO = "1.1.1"
+VERSAO = "1.2.0"
 FALHAS = {"erro_http", "erro_rede", "timeout", "corpo_invalido"}  # falha do lado do alvo
 OKS = {"ok", "lento"}  # resposta válida (lento = válida, porém acima do limiar)
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # armadilha: sem isso pisca janela
@@ -688,96 +688,166 @@ def gerar_relatorio(pasta, dias=7, agora=None):
     return out
 
 
-COR_ESTADO = {"ok": "#2f855a", "degradado": "#d69e2e", "falha": "#c53030", "sem_rede": "#a0aec0"}
-NOME_ESTADO = {"ok": "ok", "degradado": "degradado", "falha": "falha", "sem_rede": "sem rede local"}
+def br(x, casas=2):
+    return f"{x:.{casas}f}".replace(".", ",")
 
 
-def _grafico_svg(sondas, rodadas, alvos, timeout_s):
-    """SVG inline (sem dependências): faixa de estado por rodada + latência de cada serviço no tempo.
-    Falha vai para a linha do timeout com X vermelho (forma + cor: não depende só da cor)."""
-    if not rodadas:
-        return "<p>Sem dados no período.</p>"
+LIMIARES_ROTULO = (99.0, 95.0)  # disponibilidade % do período: >= 99 Operacional, >= 95 Com problemas, senão Instável
+ROTULOS = {"ok": "Operacional", "lento": "Com problemas", "falha": "Instável", "vazio": "Sem dados"}
+COR_BARRA = {"ok": "#16a34a", "lento": "#d97706", "falha": "#dc2626", "429": "#64748b", "vazio": "#94a3b8"}
+NOME_BARRA = {"ok": "ok", "lento": "lenta", "falha": "falha", "429": "HTTP 429"}
+MAX_BARRAS = 300
+MAX_JANELAS_HTML = 12  # a lista completa fica no CSV; o HTML precisa caber no A4
+
+
+def _granularidade(span_s, base_s):
+    """Menor largura de barra (5 min → 1 h → 6 h → 1 dia) que mantém o gráfico com até MAX_BARRAS barras."""
+    for tam, nome in ((base_s, f"{base_s // 60} min"), (3600, "1 hora"), (6 * 3600, "6 horas")):
+        if span_s / tam <= MAX_BARRAS:
+            return tam, nome
+    return 86400, "1 dia"
+
+
+def _cor_do_balde(n, nf, nl, n429):
+    """Cor de um intervalo: vermelho se >= 25% falharam; âmbar se houve falha ou >= 25% lentas; cinza se só 429."""
+    if nf / n >= 0.25:
+        return "falha"
+    if nf or nl / n >= 0.25:
+        return "lento"
+    return "429" if n429 == n else "ok"
+
+
+def _baldes(medicoes, t0, tam, teto_s):
+    """medicoes: [(epoch_s, resultado, total_ms)] → {indice: (cor, p95_s, n, nf, nl)}; só existe balde com dado."""
+    grupos = defaultdict(list)
+    for t, res, ms in medicoes:
+        grupos[int((t - t0) // tam)].append((res, ms))
+    out = {}
+    for i, g in grupos.items():
+        nf = sum(r in FALHAS for r, _ in g)
+        nl = sum(r == "lento" for r, _ in g)
+        n429 = sum(r == "bloqueio_429" for r, _ in g)
+        lat = [teto_s if r in FALHAS else ms / 1000 for r, ms in g if r != "bloqueio_429"]
+        out[i] = (_cor_do_balde(len(g), nf, nl, n429), _pct(lat, 95) if lat else 0, len(g), nf, nl)
+    return out
+
+
+def _rotulo(disp):
+    if disp is None:
+        return "vazio"
+    return "ok" if disp >= LIMIARES_ROTULO[0] else ("lento" if disp >= LIMIARES_ROTULO[1] else "falha")
+
+
+def _grafico(sondas, alvos, cfg):
+    """Cartão do período + uma linha por serviço (bolinha, faixa de barras, rótulo). SVG inline, sem dependências."""
     esc = html.escape
-    t = lambda iso: datetime.fromisoformat(iso).timestamp()  # noqa: E731
-    t0, t1 = t(rodadas[0]["ts_utc"]), t(rodadas[-1]["ts_utc"])
-    span = max(t1 - t0, 1)
-    L, R, W = 70, 20, 900
-    x = lambda ts: L + (ts - t0) / span * (W - L - R)  # noqa: E731
-    marcas = [t0 + span * i / 4 for i in range(5)]
-    eixo_x = "".join(f'<text x="{x(m):.1f}" y="{{y}}" text-anchor="{"end" if i == 4 else "middle"}" '
-                     f'font-size="10" fill="#444">{datetime.fromtimestamp(m):%d/%m %H:%M}</text>'
-                     for i, m in enumerate(marcas))
-    # faixa de estado
-    larg = max(2.0, (W - L - R) / max(len(rodadas), 1))
-    faixa = "".join(
-        f'<rect x="{x(t(r["ts_utc"])):.1f}" y="18" width="{min(larg, 6):.1f}" height="16" fill="{COR_ESTADO[r["estado"]]}">'
-        f'<title>{esc(_fmt(r["ts_local"]))} - {NOME_ESTADO[r["estado"]]}'
-        f'{" (" + esc(", ".join(r["falhas"])) + ")" if r["falhas"] else ""}</title></rect>' for r in rodadas)
-    leg = "".join(f'<rect x="{L + i * 120}" y="0" width="10" height="10" fill="{c}"/>'
-                  f'<text x="{L + i * 120 + 14}" y="9" font-size="10" fill="#333">{NOME_ESTADO[k]}</text>'
-                  for i, (k, c) in enumerate(COR_ESTADO.items()))
-    partes = [f'<text x="0" y="30" font-size="11" fill="#333">Rodadas</text>{leg}{faixa}']
-    y0, alt, gap = 66, 84, 28
-    teto = timeout_s
-    for i, a in enumerate(alvos):
-        top = y0 + i * (alt + gap)
-        y = lambda ms, top=top: top + alt - min(ms / 1000, teto) / teto * alt  # noqa: E731
-        partes.append(f'<text x="0" y="{top - 6}" font-size="11" font-weight="600" fill="#111">{esc(a["nome"])}</text>')
-        partes.append(f'<rect x="{L}" y="{top}" width="{W - L - R}" height="{alt}" fill="none" stroke="#ccc"/>')
-        for v in (10, 20, teto):
-            if v <= teto:
-                partes.append(f'<line x1="{L}" x2="{W - R}" y1="{y(v * 1000):.1f}" y2="{y(v * 1000):.1f}" '
-                              f'stroke="{"#c53030" if v == teto else "#bbb"}" stroke-dasharray="3 3"/>'
-                              f'<text x="{L - 4}" y="{y(v * 1000) + 3:.1f}" text-anchor="end" font-size="10" '
-                              f'fill="#444">{v} s</text>')
-        partes.append(f'<text x="{L - 4}" y="{top + alt + 3}" text-anchor="end" font-size="10" fill="#444">0</text>')
-        for sd in (q for q in sondas if q["alvo"] == a["id"] and q["tentativa"] == 1):
-            cx, r_ = x(t(sd["ts_utc"])), sd["resultado"]
-            dica = (f'<title>{esc(_fmt(sd["ts_local"]))} - {r_}'
-                    f'{" - " + str(round(sd["total_ms"] / 1000, 1)) + " s" if sd["total_ms"] else ""}</title>')
-            if r_ in FALHAS:
-                cy = y(teto * 1000)
-                partes.append(f'<g stroke="#c53030" stroke-width="2"><line x1="{cx - 4:.1f}" y1="{cy - 4:.1f}" '
-                              f'x2="{cx + 4:.1f}" y2="{cy + 4:.1f}"/><line x1="{cx - 4:.1f}" y1="{cy + 4:.1f}" '
-                              f'x2="{cx + 4:.1f}" y2="{cy - 4:.1f}"/>{dica}</g>')
-            elif r_ == "bloqueio_429":
-                partes.append(f'<rect x="{cx - 3:.1f}" y="{y(0) - 6:.1f}" width="6" height="6" fill="#718096">{dica}</rect>')
-            elif r_ == "lento":
-                cy = y(sd["total_ms"])
-                partes.append(f'<path d="M{cx:.1f} {cy - 4:.1f}L{cx + 4:.1f} {cy:.1f}L{cx:.1f} {cy + 4:.1f}'
-                              f'L{cx - 4:.1f} {cy:.1f}Z" fill="#d69e2e" stroke="#fff">{dica}</path>')
-            else:
-                partes.append(f'<circle cx="{cx:.1f}" cy="{y(sd["total_ms"]):.1f}" r="3" fill="#2b6cb0" '
-                              f'stroke="#fff">{dica}</circle>')
-    fim_y = y0 + len(alvos) * (alt + gap)
-    partes.append(eixo_x.replace("{y}", str(fim_y - gap + 16)))
-    leg2 = (f'<circle cx="{L + 5}" cy="{fim_y + 4}" r="3" fill="#2b6cb0"/><text x="{L + 14}" y="{fim_y + 8}" '
-            f'font-size="10" fill="#333">resposta ok</text>'
-            f'<path d="M{L + 105} {fim_y}l4 4l-4 4l-4 -4z" fill="#d69e2e"/><text x="{L + 114}" y="{fim_y + 8}" '
-            f'font-size="10" fill="#333">lenta (acima do limiar)</text>'
-            f'<text x="{L + 265}" y="{fim_y + 8}" font-size="12" fill="#c53030" font-weight="700">×</text>'
-            f'<text x="{L + 275}" y="{fim_y + 8}" font-size="10" fill="#333">falha (posta no limite de {timeout_s} s)</text>'
-            f'<rect x="{L + 465}" y="{fim_y + 1}" width="6" height="6" fill="#718096"/>'
-            f'<text x="{L + 476}" y="{fim_y + 8}" font-size="10" fill="#333">HTTP 429</text>')
-    return (f'<svg viewBox="0 0 {W} {fim_y + 20}" width="100%" role="img" '
-            f'aria-label="Estado das rodadas e latência de cada serviço ao longo do período">'
-            f'{"".join(partes)}{leg2}</svg>')
-
+    teto = cfg["timeout_total_s"]
+    por_alvo = {a["id"]: [(datetime.fromisoformat(s["ts_utc"]).timestamp(), s["resultado"], s["total_ms"])
+                          for s in sondas if s["alvo"] == a["id"] and s["tentativa"] == 1] for a in alvos}
+    todos = [m for v in por_alvo.values() for m in v]
+    if not todos:
+        return "<p>Sem dados no período.</p>"
+    t0, t1 = min(m[0] for m in todos), max(m[0] for m in todos)
+    tam, nome_tam = _granularidade(t1 - t0, cfg["intervalo_normal_s"])
+    n_barras = int((t1 - t0) // tam) + 1
+    W, alt = 576, 34
+    bw = W / n_barras
+    fmt_dia = tam >= 6 * 3600
+    linhas, contagem = [], Counter()
+    for a in alvos:
+        med = por_alvo[a["id"]]
+        c = Counter(r for _, r, _ in med)
+        ok, fal = c["ok"] + c["lento"], sum(c[k] for k in FALHAS)
+        disp = 100 * ok / (ok + fal) if ok + fal else None
+        lat = [ms for _, r, ms in med if r in OKS]
+        rot = _rotulo(disp)
+        contagem[rot] += 1
+        barras = []
+        for i, (cor, p95s, n, nf, nl) in sorted(_baldes(med, t0, tam, teto).items()):
+            h = 1.0 if cor == "falha" else max(0.08, math.sqrt(min(p95s, teto) / teto))
+            ini = datetime.fromtimestamp(t0 + i * tam)
+            quando = f"{ini:%d/%m}" if fmt_dia else f"{ini:%d/%m %H:%M}"
+            dica = (f"{quando} — {NOME_BARRA[cor]} — {br(p95s, 1)} s" if n == 1 else
+                    f"{quando} — {n} medições: {nf} falha(s), {nl} lenta(s) — p95 {br(p95s, 1)} s")
+            fill = "url(#hach)" if cor == "falha" else COR_BARRA[cor]
+            barras.append(f'<rect x="{i * bw:.2f}" y="{alt * (1 - h):.2f}" width="{bw * 0.8:.2f}" height="{alt * h:.2f}" '
+                          f'fill="{fill}"><title>{esc(dica)}</title></rect>')
+        nums = (f"disp. {br(disp, 1)}% · p95 {br(_pct(lat, 95) / 1000, 1)} s" if disp is not None and lat
+                else "sem medições válidas")
+        linhas.append(
+            f'<div class="row"><div class="nome"><i style="background:{COR_BARRA[rot]}"></i>{esc(a["nome"])}</div>'
+            f'<div class="strip"><svg viewBox="0 0 {W} {alt}" width="100%" height="{alt}" preserveAspectRatio="none" '
+            f'role="img" aria-label="{esc(a["nome"])}">{"".join(barras)}</svg></div>'
+            f'<div class="num"><b style="color:{COR_BARRA[rot]}">{ROTULOS[rot]}</b><span>{nums}</span></div></div>')
+    ticks = "".join(
+        f"<span>{datetime.fromtimestamp(t0 + (t1 - t0) * k / 4):{'%d/%m' if (t1 - t0) >= 2 * 86400 else '%d/%m %H:%M'}}</span>"
+        for k in range(5))
+    n_rot = {k: contagem[k] for k in ("ok", "lento", "falha")}
+    selo = ("INSTÁVEL", "inst") if n_rot["falha"] else (("COM PROBLEMAS", "deg") if n_rot["lento"] else ("OPERACIONAL", "ok"))
+    sem_dados = (f'<b style="color:{COR_BARRA["vazio"]}">{contagem["vazio"]} sem dados</b>' if contagem["vazio"] else "")
+    cartao = (f'<div class="card {selo[1]}"><div><div class="t">PNCP — {len(alvos)} serviços monitorados</div>'
+              f'<div class="c"><b style="color:{COR_BARRA["ok"]}">{n_rot["ok"]} operacional</b>'
+              f'<b style="color:{COR_BARRA["lento"]}">{n_rot["lento"]} com problemas</b>'
+              f'<b style="color:{COR_BARRA["falha"]}">{n_rot["falha"]} instável</b>{sem_dados}· no período</div></div>'
+              f'<span class="badge">{selo[0]}</span></div>')
+    leg = "".join(f'<span><i style="background:{COR_BARRA[k]}"></i>{n}</span>'
+                  for k, n in (("ok", "ok"), ("lento", "lenta (acima do limiar)"), ("429", "HTTP 429 (limitação)")))
+    leg += (f'<span><svg width="11" height="11" style="vertical-align:-1px;margin-right:5px"><rect width="11" height="11" '
+            f'fill="url(#hach)" stroke="{COR_BARRA["falha"]}"/></svg>falha (tempo esgotado ou erro)</span>')
+    return (f'<svg width="0" height="0" style="position:absolute"><defs><pattern id="hach" width="4" height="4" '
+            f'patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="4" height="4" fill="#fecaca"/>'
+            f'<rect width="1.6" height="4" fill="{COR_BARRA["falha"]}"/></pattern></defs></svg>{cartao}'
+            f'<p class="sub">1 barra = {nome_tam}. Cor = resultado da medição (em intervalos maiores que uma rodada: vermelho se '
+            f'≥ 25% falharam; âmbar se houve falha ou ≥ 25% lentas). Altura = latência (0 a {teto} s, escala raiz; '
+            f'barra cheia = falha). Rótulo do período: disponibilidade ≥ {LIMIARES_ROTULO[0]:g}% Operacional, '
+            f'≥ {LIMIARES_ROTULO[1]:g}% Com problemas, abaixo Instável. Intervalo sem barra = sem medição.</p>'
+            f'{"".join(linhas)}<div class="row eixo"><div class="nome"></div><div class="strip ticks">{ticks}</div>'
+            f'<div class="num"></div></div><div class="leg">{leg}</div>')
 
 CSS_RESUMO = """
 body{font:14px/1.5 Segoe UI,Arial,sans-serif;max-width:960px;margin:24px auto;padding:0 16px;color:#111}
-h1{font-size:20px;margin:0 0 4px}h2{font-size:16px;margin:24px 0 6px;border-bottom:1px solid #999}
-table{border-collapse:collapse;width:100%;font-size:12.5px}th,td{border:1px solid #bbb;padding:3px 6px;text-align:right}
-th{background:#eee}td:first-child,th:first-child{text-align:left}.pre{color:#b00;font-weight:600}
-.meta{color:#444}.nota{font-size:12.5px;color:#333}
-@page{size:A4;margin:14mm}@media print{body{margin:0;max-width:none}h2{break-after:avoid}tr{break-inside:avoid}}
+h1{font-size:20px;margin:0 0 4px}
+h2{font-size:16px;margin:24px 0 6px;border-bottom:1px solid #999}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{border:1px solid #bbb;padding:3px 6px;text-align:right}
+th{background:#eee}
+td:first-child,th:first-child{text-align:left}
+.pre{color:#b00;font-weight:600}
+.meta{color:#444}
+.nota{font-size:12.5px;color:#333}
+.card{border:1px solid #f0c8c8;border-left:5px solid #dc2626;border-radius:12px;padding:10px 16px;display:flex;
+justify-content:space-between;align-items:center;background:#fff5f5;margin:8px 0}
+.card.deg{border-color:#f3e0b0;border-left-color:#d97706;background:#fffaf0}
+.card.ok{border-color:#bbe5c8;border-left-color:#16a34a;background:#f3fbf6}
+.card .t{font-size:15px;font-weight:800}
+.card .c{font:11.5px Consolas,monospace;color:#555;margin-top:2px}
+.card .c b{margin-right:8px}
+.badge{font:700 11.5px Consolas,monospace;padding:4px 11px;border-radius:999px;background:#fde2e2;color:#991b1b;
+letter-spacing:.04em}
+.card.deg .badge{background:#fdebc8;color:#92400e}
+.card.ok .badge{background:#d8f3e2;color:#166534}
+.row{display:grid;grid-template-columns:180px 1fr 150px;gap:10px;align-items:center;padding:4px 0;
+border-bottom:1px dotted #ddd;break-inside:avoid}
+.nome{display:flex;align-items:center;gap:7px;font-weight:600;font-size:12.5px}
+.nome i{width:9px;height:9px;border-radius:50%;flex:none}
+.num{text-align:right;line-height:1.2}
+.num b{display:block;font-size:12.5px}
+.num span{font-size:10.5px;color:#555}
+.eixo{border:0;padding-top:0}
+.ticks{display:flex;justify-content:space-between;font-size:10px;color:#555}
+.leg{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin:8px 0 2px;align-items:center}
+.leg i{display:inline-block;width:11px;height:11px;margin-right:5px;vertical-align:-1px}
+body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+@page{size:A4;margin:14mm}
+@media print{body{margin:0;max-width:none}
+h2{break-after:avoid}
+tr{break-inside:avoid}}
 """
 
 
 def _resumo_html(out, cfg, ini, fim, sondas, rodadas, janelas, n_lacunas):
     """Página única, imprimível, para anexar ao chamado. Só números que o log sustenta."""
     esc = html.escape
-    br = lambda x: f"{x:.2f}".replace(".", ",")  # noqa: E731
     alvos = [a for a in cfg["alvos"] if a["tipo"] != "controle"]
     primeira = rodadas[0]["ts_local"] if rodadas else ""
     ultima = rodadas[-1]["ts_local"] if rodadas else ""
@@ -801,15 +871,18 @@ def _resumo_html(out, cfg, ini, fim, sondas, rodadas, janelas, n_lacunas):
                       + "".join(f"<td>{_demora(s1, x) or '-'}</td>" for x in LIMIARES_DEMORA_S) + "</tr>")
     jan = "".join(f"<tr><td>{j['ini']:%d/%m/%Y %H:%M}</td><td>{j['fim']:%H:%M}</td>"
                   f"<td>{round((j['fim'] - j['ini']).total_seconds() / 60, 1)}</td>"
-                  f"<td>{esc(', '.join(sorted(j['alvos'])))}</td></tr>" for j in janelas) \
+                  f"<td>{esc(', '.join(sorted(j['alvos'])))}</td></tr>" for j in janelas[:MAX_JANELAS_HTML]) \
         or '<tr><td colspan="4">Nenhuma janela de incidente no período.</td></tr>'
+    if len(janelas) > MAX_JANELAS_HTML:
+        jan += (f'<tr><td colspan="4">e mais {len(janelas) - MAX_JANELAS_HTML} janela(s): '
+                'lista completa em 2_janelas_de_incidente.csv</td></tr>')
     ex = [s for s in sondas if s["resultado"] in FALHAS][:8]
     exs = "".join(f"<tr><td>{_fmt(s['ts_local'])}</td><td>{esc(s['alvo'])}</td><td>{s['tentativa']}</td>"
                   f"<td>{esc(s['detalhe'])}{' / HTTP ' + str(s['http']) if s['http'] else ''}</td>"
                   f"<td>{s['total_ms']}</td><td>{esc(s.get('pncp_ts_erro', ''))}</td>"
                   f"<td>{esc(s.get('corpo_trecho', '')[:120])}</td></tr>" for s in ex) \
         or '<tr><td colspan="7">Nenhuma falha registrada.</td></tr>'
-    grafico = _grafico_svg(sondas, rodadas, alvos, cfg["timeout_total_s"])
+    grafico = _grafico(sondas, alvos, cfg)
     (out / "resumo_para_chamado.html").write_text(f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
 <title>Sonda PNCP - resumo</title><style>{CSS_RESUMO}</style></head><body>
 <h1>Disponibilidade do PNCP - medição independente</h1>

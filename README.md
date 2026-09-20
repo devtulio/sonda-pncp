@@ -51,8 +51,8 @@ lê os logs do período inteiro, então encerrar e reabrir a sonda não
 fragmenta nada:
 
 - `resumo_para_chamado.html` — uma página imprimível (A4) com cobertura,
-  disponibilidade e latência por serviço, gráfico de estado/latência ao
-  longo do tempo, janelas de incidente, exemplos de falha com o horário
+  disponibilidade e latência por serviço, faixas de barras de
+  estado/latência por serviço (como o statuslicitacoes), janelas de incidente, exemplos de falha com o horário
   do erro segundo o próprio PNCP e o método. Traz o campo
   `[preencher identificação antes de anexar]` — nada é enviado sozinho.
 - 5 CSVs (`;`, UTF-8 com BOM, abrem direto no Excel): resumo diário,
@@ -77,7 +77,7 @@ Na primeira execução a sonda cria o `config.json` com os padrões e
 registra o início automático com o Windows (atalho na pasta Startup do
 usuário, sem administrador; desligável no menu).
 
-Testes: `.venv\Scripts\python.exe -m unittest discover -s tests` (30
+Testes: `.venv\Scripts\python.exe -m unittest discover -s tests` (34
 testes — medição real via `curl.exe` contra servidor HTTP falso,
 classificação de erros, máquina de estados, lacunas, relatório).
 

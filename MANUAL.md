@@ -261,12 +261,24 @@ Página única, imprimível em A4, autocontida (SVG inline, sem dependências):
   disponibilidade %, falhas, *recuperadas na 2ª tentativa*, *falhas
   confirmadas*, lentas, HTTP 429, p50/p95/máx (ms) e *Demora > 10 s* /
   *Demora > 20 s* %.
-- **Estado e latência ao longo do tempo:** faixa de rodadas coloridas por
-  estado e um painel por serviço com a latência de cada medição (eixo de
-  0 a 30 s, linhas em 10 s e 20 s). Falha = **×** vermelho no limite;
-  lenta = losango amarelo; ok = ponto azul; 429 = quadrado cinza. Passar
-  o mouse mostra horário e tempo.
-- **Janelas de incidente**, **exemplos de falha** (até 8) e **método**.
+- **Estado e latência ao longo do tempo:** um cartão do período (serviços
+  por rótulo e selo geral) e uma linha por serviço com bolinha de estado,
+  uma **faixa de barras** e o rótulo à direita com disponibilidade e p95.
+  - *Cor da barra:* verde = ok, âmbar = lenta, cinza = HTTP 429, **vermelho
+    hachurado = falha** (a hachura mantém a leitura em preto e branco).
+  - *Altura:* latência de 0 a 30 s em escala raiz (0,4 s ainda aparece);
+    barra cheia = falha.
+  - *Largura da barra:* acompanha o período que os dados cobrem — 5 min até
+    ~25 h, 1 h até ~12 dias, 6 h até ~75 dias, depois 1 dia. Em intervalo
+    maior que uma rodada, a cor é vermelha se ≥ 25% das medições falharam e
+    âmbar se houve falha ou ≥ 25% lentas; a altura é o p95 do intervalo.
+  - *Sem barra* = sem medição (a sonda estava desligada); nunca conta como
+    disponibilidade. Passar o mouse mostra horário e números do intervalo.
+  - *Rótulo do período:* disponibilidade ≥ 99% **Operacional**, ≥ 95% **Com
+    problemas**, abaixo **Instável**; sem medição = **Sem dados**. Os limites
+    são `LIMIARES_ROTULO` em `sonda_core.py` (podem ser recalibrados).
+- **Janelas de incidente** (até 12; o CSV tem todas), **exemplos de falha**
+  (até 8) e **método**.
 - O campo `Solicitante: [preencher identificação antes de anexar]`.
 
 ### CSVs
@@ -347,7 +359,7 @@ derrubar a sonda. O toast mostra só a primeira linha da mensagem.
 .venv\Scripts\python.exe -m unittest discover -s tests
 ```
 
-30 testes: a medição usa o `curl.exe` de verdade contra um servidor HTTP
+34 testes: a medição usa o `curl.exe` de verdade contra um servidor HTTP
 falso local (200, 204, 429, 503, 404, timeout, corpo inválido, conexão
 derrubada/recusada/DNS); a máquina de estados, as lacunas, o encerramento
 no meio da rodada, o registro ausente e o relatório rodam com relógio e
