@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+# gerados em execução: dados de medição e configuração local
+logs/
+relatorios/
+config.json
+# notas internas de continuidade (caminhos, planos): ficam só na máquina
+CONTINUAR-DESENVOLVIMENTO.md

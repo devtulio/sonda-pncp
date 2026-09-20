@@ -1,0 +1,45 @@
+SONDA PNCP v1.1.0
+=================
+Mede a disponibilidade do PNCP (portal + APIs) em segundo plano e grava um log por dia.
+
+USO
+  Iniciar Sonda PNCP.cmd     sobe na bandeja (segunda execucao nao duplica)
+  Encerrar Sonda PNCP.cmd    encerra a instancia em execucao (igual ao menu "Encerrar")
+  Icone da bandeja: verde = ok, amarelo = degradado/1 falha, vermelho = 2 rodadas seguidas
+  com falha, cinza = sem rede local / pausada. Pode ficar em "icones ocultos" da barra.
+  Menu: Verificar agora, Abrir pasta de logs, Gerar relatorio (7 dias), Pausar sonda,
+  Iniciar com o Windows, Encerrar.
+  Linha de comando (use .venv\Scripts\python.exe):
+    sonda_pncp.pyw --uma-rodada    uma verificacao e imprime o resultado
+    sonda_pncp.pyw --relatorio N   relatorio dos ultimos N dias
+
+O QUE MEDE
+  2 controles (Google, Cloudflare) + 6 alvos PNCP: portal, api_contratacoes, api_contratos,
+  api_atas, api_pca, api_itens. Rodada a cada 5 min; 60 s em incidente (sai apos 3 rodadas
+  sem falha). Falha = erro HTTP, erro de rede, timeout ou corpo invalido; repete 1x apos 10 s
+  (se a 2a passa = "blip", conta como degradado). HTTP 429 = limitacao (WAF), nao e queda e
+  nunca acelera a sondagem. Se os 2 controles falham = "sem_rede": nao conta como falha do PNCP.
+
+ARQUIVOS
+  logs\sonda-AAAA-MM-DD.jsonl   um por dia (hora local); >30 dias viram .gz
+  logs\sonda-erros.log          erros internos da propria sonda
+  relatorios\relatorio-AAAAMMDD\  UM por dia (gerar de novo no mesmo dia sobrescreve):
+                                resumo_para_chamado.html (pagina imprimivel com grafico,
+                                para anexar a um chamado) + 5 CSVs (;  utf-8-sig): resumo
+                                diario, janelas de incidente, ocorrencias, cobertura, lacunas
+  config.json                   criado na 1a execucao; intervalos, limiares, alvos, porta
+
+CAMPOS DO LOG
+  tipo: sonda (1 medicao) | rodada (resumo) | evento (inicio/fim, mudanca de estado/IP,
+  lacunas, pausa). Toda linha tem ts_local (com fuso) e ts_utc. Medicao traz IP, HTTP,
+  dns_ms/tcp_ms/tls_ms/ttfb_ms/total_ms (tempos acumulados do curl, nao por fase), bytes,
+  hash do corpo (ok) ou trecho de 400 chars + cabecalhos completos (falha).
+
+DOCUMENTACAO
+  README.md (visao geral), MANUAL.md (referencia completa), CHANGELOG.md, RELEASING.md.
+
+LIMITES
+  Um unico ponto de observacao e so mede com o PC ligado (lacunas ficam registradas).
+  Limiares iniciais sao folgados: recalibrar apos ~7 dias pelo p95 do relatorio.
+  Para remover o inicio automatico: menu "Iniciar com o Windows" (desmarcar) ou apagar
+  %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Sonda PNCP.lnk
