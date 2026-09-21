@@ -522,14 +522,14 @@ class TestRelatorio(Base):
         lacunas = ler("5_lacunas.csv")[1:]
         self.assertEqual(len(lacunas), 1)
         self.assertGreater(float(lacunas[0][2].replace(",", ".")), 170)
-        self.assertEqual(len(ler("4_cobertura_diaria.csv")) - 1, 3)
+        self.assertEqual(len(ler("4_cobertura_diaria.csv")) - 1, 1)  # só o dia do 1º registro: antes dele a sonda não existia
         agora = self.relogio.t + timedelta(minutes=1)
         self.assertEqual(core.gerar_relatorio(self.pasta, dias=3, agora=agora + timedelta(hours=2)), out)  # mesmo dia
         self.assertEqual(len(list((self.pasta / "relatorios").iterdir())), 1)
         html_ = (out / "resumo_para_chamado.html").read_text(encoding="utf-8")
         self.assertIn("PNCP — 6 serviços monitorados", html_)  # o relatório lê os alvos do config da pasta
         self.assertIn("5 sem dados", html_)  # só o portal tem medição neste teste
-        self.assertIn("1 barra = 5 min", html_)
+        self.assertIn("1 barra = 1 medição", html_)  # período curto: uma barra por medição, sem baldes vazios
         self.assertIn("url(#hach)", html_)  # falha hachurada
         self.assertIn("Operacional", html_)
         self.assertNotIn("e mais", html_)  # 1 janela: nada truncado

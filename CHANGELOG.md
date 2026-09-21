@@ -2,6 +2,93 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
+## [1.4.1] — 2026-09-21
+
+Correções da auditoria de código de 21/09/2026: a promessa "a sonda não morre
+calada" não se sustentava, e havia falhas de evidência no relatório. Cada
+correção nasceu de uma reprodução (os testes novos falham no código anterior)
+ou de uma medição nos logs reais. Sem mudança de contrato: nenhum evento,
+resultado ou coluna nova; só comportamento que contradizia o que já estava
+documentado. Validado com `--uma-rodada` e `--relatorio` contra o PNCP real e
+com a bandeja real (`pythonw` + `pystray`) numa cópia isolada.
+
+### Fixed
+- **Laço de medição morrendo em silêncio.** `registrar_erro` gravava o evento
+  no log antes do `sonda-erros.log`; com o log inacessível (disco cheio, arquivo
+  travado) a exceção estourava dentro do `except` e a thread morria sem rastro,
+  sem voltar. Agora o `sonda-erros.log` vai primeiro, `registrar_erro` nunca
+  levanta, e o laço inteiro está protegido. Também: `disparar.wait` fora do
+  `try` matava o laço com um intervalo em texto; falha ao redesenhar o ícone ou
+  ao notificar derrubava a cadência do incidente e perdia a rodada.
+- **Partida frágil.** Uma exceção em `iniciar()` (compactar um log antigo
+  travado pelo antivírus, log com bytes inválidos) ou no PowerShell do atalho
+  impedia o laço e o `--encerrar` de subirem, com o ícone cinza para sempre.
+  Cada etapa é protegida e o laço sobe mesmo assim.
+- **Porta da instância única ocupada por outro programa** fazia a sonda sair com
+  código 0, sem log e sem aviso. Agora a 2ª execução confere com um `ping`: se
+  não for uma Sonda, mostra uma caixa de erro e registra. `--encerrar` só devolve
+  0 quando a Sonda **confirmou** (antes bastava conectar).
+- **"Encerrar" sem efeito** com o log falhando: `parar` agora é marcado antes de
+  gravar o evento. Medição em andamento no encerramento é descartada, para nada
+  ser gravado depois de `sonda_encerrada`.
+- **Config inválido** (intervalo `0` ou em texto, `alvos` vazio, só controles,
+  URL com marcador inválido) só aparecia horas depois. Agora é validado na
+  partida, com mensagem que cita a chave; chave desconhecida vira uma linha em
+  `sonda-erros.log`. Um alvo com erro interno não derruba mais a rodada dos
+  outros, e alvo não medido nunca resulta em rodada `ok`. O `config.json` é
+  gravado de forma atômica.
+- **Log:** uma linha cortada por queda de energia engolia o registro seguinte
+  (perdiam-se dois, não um). A escrita agora garante a quebra de linha. A leitura
+  tolera bytes inválidos, linha que não é registro e `.gz` truncado, e conta o
+  que ignorou (o relatório informa); `.jsonl` e `.jsonl.gz` do mesmo dia não
+  contam em dobro; `compactar_antigos` não levanta com arquivo travado.
+- **Relatório:** o `4_cobertura_diaria.csv` acusava "cobertura 0%" em dias em que
+  a sonda ainda não existia; agora começa no dia do primeiro registro. Publicação
+  atômica da pasta do dia (arquivo aberto no Excel gera uma pasta completa com a
+  hora no nome, em vez de misturar duas gerações). Falha ao gerar pelo menu avisa.
+  O motivo de uma lacuna considera `erro_interno`.
+- **Gráfico:** em períodos ≤ ~25 h os baldes de 5 min ficavam vazios (10–12% com a
+  sonda ligada o tempo todo) enquanto a legenda dizia "sonda desligada". Agora é
+  uma barra por medição, na posição real. Registro de teste ausente tem cor
+  própria (antes aparecia como "ok").
+- `desvio_relogio_s` só é gravado com resposta abaixo de 2 s (com respostas
+  lentas o erro da estimativa chegava a ±14 s). `mudanca_ip` deixa de ser
+  registrado para os controles (72% dos eventos, todos ruído). O resumo
+  `rodada`, gravado no fim da rodada com o horário do início, não é mais
+  tomado como "último registro" ao calcular o intervalo desde a partida
+  anterior. O timeout da guarda do curl tem detalhe próprio (`timeout_guarda`).
+- Argumento desconhecido ou `--relatorio` fora de 1–365 não sobe mais a sonda
+  na bandeja (código 2).
+
+### Added
+- **Vigia** na bandeja: se a thread do laço morrer, ou ficar viva sem medir por
+  mais que a rodada mais lenta possível (duas verificações seguidas; o relógio
+  monotônico evita alarme falso ao voltar de suspensão), o ícone fica vermelho,
+  a dica diz "PAROU de medir" e sai uma notificação. Antes o ícone ficava verde
+  para sempre com o laço morto.
+- Aviso quando o `curl.exe` está ausente ou bloqueado (uma vez, com notificação):
+  antes parecia apenas "sem rede local".
+- Caixa de erro do Windows para falha de partida (config inválido, porta ocupada).
+- 44 testes novos (`tests/test_robustez.py`), incluindo os primeiros da bandeja:
+  cobertura de `sonda_pncp.pyw` de 0% para 52%, do núcleo de 90% para 92%.
+
+### Security
+- Texto do PNCP que começa com `=`, `+`, `-` ou `@` (corpo da resposta em
+  `3_ocorrencias.csv`) recebe um `'` na frente: o Excel de quem abre o anexo não
+  o executa mais como fórmula.
+- O `curl.exe` vem do `System32` (`shutil.which` procurava antes no diretório
+  atual, e o atalho de início automático define o diretório de trabalho); o
+  curl só segue `http`/`https`, inclusive em redirecionamentos. O PowerShell do
+  atalho recebe os caminhos por variáveis de ambiente, não dentro do texto do
+  script.
+
+### Não incluído (fica para a 1.5.0, exige contrato novo ou decisão)
+Cadência "início a início" (hoje a espera conta do fim da rodada: ~5,6 min em vez
+de 5 e ~3,6 min em vez de 60 s no incidente); coluna de disponibilidade
+ponderada por tempo (a contagem tem viés de ~3 p.p. nos dados reais); resultado
+`erro_local` e validação do corpo dos controles (portal cativo); `uptime_pc_s` em
+`sonda_iniciada`; autostart independente de logon.
+
 ## [1.4.0] — 2026-09-20
 
 O órgão e a compra usados nos alvos de contratos, atas, PCA e itens deixam

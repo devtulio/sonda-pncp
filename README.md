@@ -97,7 +97,7 @@ Para medir o **seu** órgão em vez do de teste, troque `cnpj_teste` e
 `compra_teste` no `config.json` (o [MANUAL](MANUAL.md#órgão-e-compra-de-teste)
 mostra como achar uma compra).
 
-Testes: `.venv\Scripts\python.exe -m unittest discover -s tests` (38
+Testes: `.venv\Scripts\python.exe -m unittest discover -s tests` (82
 testes — medição real via `curl.exe` contra servidor HTTP falso,
 classificação de erros, máquina de estados, lacunas, relatório).
 
@@ -118,8 +118,11 @@ classificação de erros, máquina de estados, lacunas, relatório).
 - **Evidência completa na falha.** Falha grava IP, cabeçalhos completos,
   trecho do corpo e o horário do erro segundo o próprio PNCP; sucesso
   grava só o hash do corpo.
-- **A sonda nunca morre calada.** Erro interno vira evento no log e linha
-  em `logs/sonda-erros.log`; o laço continua.
+- **A sonda não morre calada.** Erro interno vira evento no log e linha em
+  `logs/sonda-erros.log` (que vai primeiro: é o que sobra quando o log é o
+  problema); o laço continua, e um vigia na bandeja pinta o ícone de vermelho
+  e notifica se o laço parar de medir mesmo assim. Erro de partida aparece
+  numa caixa de erro do Windows, não só num arquivo.
 - **Mock não prova fronteira.** Mudança de comportamento é validada
   contra o PNCP real (`--uma-rodada`) antes de virar versão.
 

@@ -7,7 +7,7 @@
     "quality_profile": "showcase"
   },
   "components": [
-    { "id": "bandeja", "type": "frontend", "label": "Bandeja do Windows", "sublabel": "sonda_pncp.pyw · ícone e menu", "pos": [40, 250], "size": [170, 64] },
+    { "id": "bandeja", "type": "frontend", "label": "Bandeja do Windows", "sublabel": "sonda_pncp.pyw · ícone, menu e vigia", "pos": [40, 250], "size": [170, 64] },
     { "id": "config", "type": "database", "label": "config.json", "sublabel": "alvos, limiares, órgão de teste", "pos": [40, 410], "size": [170, 64] },
     { "id": "nucleo", "type": "backend", "label": "Núcleo da sonda", "sublabel": "sonda_core.py · laço de rodadas", "pos": [330, 250], "size": [170, 64], "tag": "5 min / 60 s" },
     { "id": "toast", "type": "frontend", "label": "Notificação do Windows", "sublabel": "winotify", "pos": [330, 90], "size": [170, 64] },

@@ -214,16 +214,33 @@ rodada; desabilitado se pausada), *Abrir pasta de logs*, *Gerar relatório
 (últimos 7 dias)* (gera e abre a pasta), *Pausar sonda* (marcável),
 *Iniciar com o Windows* (marcável), *Encerrar*.
 
+**Vigia:** uma thread confere a cada 30 s se o laço de medição continua vivo.
+Se a thread do laço terminou sem ninguém ter pedido, ou se ela está viva mas
+não mede há mais que a rodada mais lenta possível (duas verificações seguidas),
+o ícone fica **vermelho**, a dica passa a dizer "PAROU de medir às HH:MM.
+Reinicie.", sai uma notificação e o motivo vai para `sonda-erros.log`. Sem isso
+um laço morto deixava o ícone verde para sempre. Sonda pausada não é alarme.
+
 **Instância única:** um socket em `127.0.0.1` (porta `porta_instancia`,
-padrão 48650, `SO_EXCLUSIVEADDRUSE`) impede duas sondas. Uma 2ª execução
-sai sem fazer nada.
+padrão 48650, `SO_EXCLUSIVEADDRUSE`) impede duas sondas. A sonda em execução
+responde a `ping` e a `encerrar` nessa porta. Uma 2ª execução confere com um
+`ping`: se responder, é outra Sonda e ela sai em silêncio; se a porta estiver
+ocupada por **outro programa**, aparece uma caixa de erro do Windows (e a linha
+vai para `sonda-erros.log`) em vez de sair sem dizer nada.
+
+**Erros de partida** (`config.json` inválido, porta ocupada) aparecem numa
+caixa de erro do Windows com o motivo e ficam em `sonda-erros.log`. Uma falha
+no meio da partida (por exemplo, compactar um log antigo travado pelo antivírus)
+não impede a sonda de medir: é registrada e o laço sobe mesmo assim.
 
 | Comando | O que faz | Saída |
 |---|---|---|
 | `pythonw sonda_pncp.pyw` | sobe na bandeja | 0 |
-| `sonda_pncp.pyw --encerrar` | pede à instância em execução para encerrar | 0 se achou a instância, 1 se não |
+| `sonda_pncp.pyw --encerrar` | pede à instância em execução para encerrar | 0 se a Sonda **confirmou**, 1 se não (nenhuma sonda, ou outro programa na porta) |
 | `python sonda_pncp.pyw --uma-rodada` | uma rodada, imprime o registro da rodada (JSON) | 0 |
-| `python sonda_pncp.pyw --relatorio [N]` | relatório dos últimos N dias (padrão 7), imprime a pasta | 0 |
+| `python sonda_pncp.pyw --relatorio [N]` | relatório dos últimos N dias (1 a 365; padrão 7), imprime a pasta | 0 |
+| argumento desconhecido, ou N fora de 1–365 | imprime o uso e **não** sobe a sonda | 2 |
+| `config.json` inválido nas opções acima | imprime o motivo | 1 |
 
 `--uma-rodada` **grava no log** como qualquer rodada. Use o `python` do
 `.venv` (`pythonw` não tem console: erros vão para `logs/sonda-erros.log`).
@@ -235,7 +252,12 @@ menu. Para remover: desmarcar no menu ou apagar o atalho.
 
 **Encerrar** (menu ou `--encerrar`) grava o evento `sonda_encerrada`.
 Se você encerra no meio de uma rodada, a rodada é abandonada **sem**
-gravar o resumo dela (as medições já feitas ficam no log).
+gravar o resumo dela, e a medição que estava em andamento também é descartada:
+nada é gravado depois de `sonda_encerrada`. As medições já concluídas ficam no
+log. O encerramento marca a sonda como parada **antes** de gravar o evento, então
+"Encerrar" funciona mesmo com o log inacessível. Reiniciar o Windows ou usar
+"Desligar" mata o processo sem esse evento: o início seguinte registra
+`encerramento_anterior_limpo: false` (ver [Log](#log)).
 
 ## Configuração (`config.json`)
 
@@ -270,16 +292,37 @@ Recalibre pelo p95 do relatório depois de ~7 dias de dados.
 
 Mudanças no `config.json` só valem depois de reiniciar a sonda.
 
+**Validação na partida.** Valor inválido não derruba a sonda horas depois: ela
+recusa iniciar, com uma caixa de erro que diz a chave e o motivo. Regras:
+intervalos, timeouts, retenção e limites numéricos devem ser números `>= 1`
+(`espera_entre_alvos_s` e `retry_apos_falha_s`, `>= 0`); `porta_instancia` de 1
+a 65535; `notificar` e `iniciar_com_windows` devem ser `true`/`false`; `alvos`
+deve ter ao menos um alvo que não seja controle, cada um com `id` (único),
+`nome`, `url` e `tipo` (`controle`, `portal` ou `api`) e `limiar_lento_ms > 0`;
+marcadores de URL desconhecidos (`{nope}`) são recusados. Chave desconhecida
+(por exemplo `intervalo_normal` sem o `_s`) **não** derruba, mas é ignorada com
+uma linha em `sonda-erros.log`. O arquivo é gravado por arquivo temporário +
+`os.replace`, então uma queda no meio da gravação não o deixa pela metade.
+
 ## Log
 
 `logs/sonda-AAAA-MM-DD.jsonl` — um por **dia local**, uma linha JSON por
 registro, aberto e fechado a cada escrita (uma queda de energia perde no
-máximo uma linha; linha truncada é ignorada na leitura). Logs com mais de
+máximo uma linha; linha truncada é ignorada na leitura, e a escrita seguinte
+começa em linha nova, para a linha cortada não engolir o registro que vem
+depois). Logs com mais de
 `retencao_compactar_dias` viram `.jsonl.gz`. Erros internos da sonda vão
 também para `logs/sonda-erros.log`.
 
 Toda linha tem `tipo` (`sonda`, `rodada` ou `evento`), `ts_local` (com
 fuso) e `ts_utc` (`...Z`). O nome do arquivo segue a data de `ts_local`.
+**A ordem das linhas não é cronológica:** o resumo `rodada` é gravado no fim da
+rodada, mas com o horário do **início** dela, então vem depois de medições de
+horário maior. Quem lê o log deve ordenar por `ts_utc`. A leitura (relatório e
+partida) é tolerante a log estragado: linha ilegível, bytes inválidos, linha
+que não é um registro ou `.gz` truncado são pulados, e o relatório diz quantas
+linhas ignorou. Se o `.jsonl` e o `.jsonl.gz` do mesmo dia existirem (compactação
+interrompida), vale o `.jsonl`.
 
 ### `tipo: sonda` — uma medição
 
@@ -288,7 +331,8 @@ fuso) e `ts_utc` (`...Z`). O nome do arquivo segue a data de `ts_local`.
 `curl_erro`, `dns_ms`, `tcp_ms`, `tls_ms`, `ttfb_ms`, `total_ms`, `bytes`,
 `cabecalhos` (date, server, via, retry-after, content-type,
 content-length) e `desvio_relogio_s` (estimativa: relógio local menos o
-`Date` do servidor, ±latência).
+`Date` do servidor). O erro da estimativa é metade da latência, então o campo só
+é gravado quando a resposta levou **menos de 2 s**.
 
 Em **falha ou 429** ainda: `corpo_trecho` (400 primeiros caracteres),
 `cabecalhos_completos` (sem cookies/authorization) e `pncp_ts_erro` (o
@@ -309,7 +353,7 @@ alvo, com `blip` quando a 2ª tentativa passou), `falhas`, `blips`,
 | `sonda_iniciada` | ao subir | `versao`, `host`, `python`, `intervalo_normal_s`, `ultimo_registro_anterior`, `gap_desde_anterior_s`, `encerramento_anterior_limpo` |
 | `sonda_encerrada` | ao encerrar | `motivo` (`menu`, `comando_encerrar`, `saida_inesperada`), `rodadas` |
 | `mudanca_estado` | a cor do ícone mudou | `de`, `para`, `estado_rodada`, `falhas` |
-| `mudanca_ip` | um alvo passou a responder de outro IP | `alvo`, `de`, `para` |
+| `mudanca_ip` | um alvo **do PNCP** passou a responder de outro IP (os controles trocam de IP a cada consulta por balanceamento: seriam só ruído) | `alvo`, `de`, `para` |
 | `retomada_apos_lacuna` | intervalo entre rodadas muito maior que o esperado | `lacuna_s`, `desde`, `motivo` (`pausa_manual` ou `suspensao_ou_indisponibilidade`) |
 | `pausada` / `retomada_manual` | menu *Pausar sonda* | — |
 | `registro_ausente` | primeira ocorrência de [registro ausente](#registro-ausente) | `alvo`, `url` |
@@ -325,15 +369,19 @@ desligou ou foi suspenso.
 em `relatorios/relatorio-AAAAMMDD/` (data da geração). É **uma pasta por
 dia**: gerar de novo no mesmo dia sobrescreve os arquivos — como o
 relatório é sempre derivado dos logs, encerrar e reabrir a sonda não
-perde nem fragmenta nada. Se um arquivo estiver aberto no Excel o Windows
-bloqueia a sobrescrita (erro em `sonda-erros.log`): feche e gere de novo.
+perde nem fragmenta nada. O relatório é montado numa pasta de trabalho e só
+então vira a pasta do dia: se algo estiver aberto no Excel (o Windows não deixa
+trocar a pasta), o relatório completo sai em `relatorio-AAAAMMDD-HHMMSS` e a
+pasta do dia fica intacta, em vez de misturar arquivos de duas gerações. Falha
+ao gerar pelo menu do ícone avisa por notificação.
 
 ### `resumo_para_chamado.html`
 
 Página única, imprimível em A4, autocontida (SVG inline, sem dependências):
 
 - **Cobertura:** rodadas registradas × esperadas (da primeira à última
-  rodada), período e nº de lacunas.
+  rodada), período, nº de lacunas e, se houver, quantas linhas ilegíveis do
+  log foram ignoradas.
 - **Resultado por serviço** (só alvos do PNCP, 1ª tentativa): medições,
   disponibilidade %, falhas, *recuperadas na 2ª tentativa*, *falhas
   confirmadas*, lentas, HTTP 429, p50/p95/máx (ms) e *Demora > 10 s* /
@@ -341,12 +389,14 @@ Página única, imprimível em A4, autocontida (SVG inline, sem dependências):
 - **Estado e latência ao longo do tempo:** um cartão do período (serviços
   por rótulo e selo geral) e uma linha por serviço com bolinha de estado,
   uma **faixa de barras** e o rótulo à direita com disponibilidade e p95.
-  - *Cor da barra:* verde = ok, âmbar = lenta, cinza = HTTP 429, **vermelho
-    hachurado = falha** (a hachura mantém a leitura em preto e branco).
+  - *Cor da barra:* verde = ok, âmbar = lenta, cinza = HTTP 429, violeta =
+    registro de teste ausente, **vermelho hachurado = falha** (a hachura mantém a
+    leitura em preto e branco).
   - *Altura:* latência de 0 a 30 s em escala raiz (0,4 s ainda aparece);
     barra cheia = falha.
-  - *Largura da barra:* acompanha o período que os dados cobrem — 5 min até
-    ~25 h, 1 h até ~12 dias, 6 h até ~75 dias, depois 1 dia. Em intervalo
+  - *Largura da barra:* acompanha o período que os dados cobrem. Até ~25 h
+    (`--relatorio 1` e o primeiro dia) é **uma barra por medição**, na posição
+    real no tempo; depois 1 h até ~12 dias, 6 h até ~75 dias e 1 dia. Em intervalo
     maior que uma rodada, a cor é vermelha se ≥ 25% das medições falharam e
     âmbar se houve falha ou ≥ 25% lentas; a altura é o p95 do intervalo.
   - *Sem barra* = sem medição (a sonda estava desligada); nunca conta como
@@ -365,14 +415,16 @@ Página única, imprimível em A4, autocontida (SVG inline, sem dependências):
 
 ### CSVs
 
-`;` como separador, UTF-8 com BOM, decimais com vírgula.
+`;` como separador, UTF-8 com BOM, decimais com vírgula. Texto que vem do PNCP e
+começa com `=`, `+`, `-` ou `@` recebe um `'` na frente: sem isso o Excel o
+executaria como fórmula na máquina de quem abre o anexo.
 
 | Arquivo | Conteúdo |
 |---|---|
 | `1_resumo_diario.csv` | por dia × alvo: sondas, ok, lentas, falhas, 429, disponibilidade %, p50/p95 (ms), falhas por tipo, `Demora > 10 s %`, `Demora > 20 s %` |
 | `2_janelas_de_incidente.csv` | rodadas em falha unidas quando a distância é ≤ 90 min: início, fim, duração, rodadas, alvos, falhas por tipo, mensagens do PNCP reconhecidas |
 | `3_ocorrencias.csv` | toda medição que não foi ok/lenta (inclui 429, registro ausente e 2ª tentativas), com IP, tempos, trecho do corpo e horário do erro segundo o PNCP |
-| `4_cobertura_diaria.csv` | rodadas registradas × esperadas por dia |
+| `4_cobertura_diaria.csv` | rodadas registradas × esperadas por dia, **a partir do dia do primeiro registro** (antes disso a sonda não existia). O 1º dia conta desde a 1ª rodada. A cadência real é a duração da rodada + o intervalo, então uma sonda sem nenhuma lacuna sai com ~90–95% |
 | `5_lacunas.csv` | intervalos sem registro, com o motivo quando conhecido |
 
 ## Notificações
@@ -407,7 +459,15 @@ derrubar a sonda. O toast mostra só a primeira linha da mensagem.
 
 ## Limitações
 
-- Mede só com o PC ligado (e acordado): as lacunas ficam registradas.
+- Mede só com o PC ligado, acordado **e com o seu usuário logado**: o início
+  automático usa a pasta Startup, que só roda no logon. Um reinício do Windows
+  sem ninguém logado (atualização na madrugada) deixa a sonda parada até o
+  próximo logon, e o "Desligar" encerra o processo sem gravar `sonda_encerrada`.
+  As lacunas ficam registradas.
+- **Cadência:** a espera é contada do **fim** da rodada, então o período real é
+  `duração da rodada + intervalo`: mediana de ~5,6 min em modo normal e ~3,6 min
+  em modo incidente (não 5 min e 60 s). A rodada leva ~1 min com o PNCP bom e
+  até ~5 min com ele em timeout.
 - Um único ponto de observação (um IP de saída).
 - Os endpoints medidos são leituras públicas de 10 registros; não
   exercitam publicação, autenticação nem grandes volumes.
@@ -441,9 +501,12 @@ derrubar a sonda. O toast mostra só a primeira linha da mensagem.
 .venv\Scripts\python.exe -m unittest discover -s tests
 ```
 
-38 testes: a medição usa o `curl.exe` de verdade contra um servidor HTTP
+82 testes: a medição usa o `curl.exe` de verdade contra um servidor HTTP
 falso local (200, 204, 429, 503, 404, timeout, corpo inválido, conexão
 derrubada/recusada/DNS); a máquina de estados, as lacunas, o encerramento
 no meio da rodada, o registro ausente e o relatório rodam com relógio e
-medição falsos, sem rede. O smoke contra o PNCP real (`--uma-rodada`) é
+medição falsos, sem rede. `tests/test_robustez.py` reproduz falhas do ambiente
+(log que falha, config inválido, disco cheio, arquivo travado, log estragado,
+porta ocupada por outro programa, CSV com fórmula) e testa a bandeja
+(`sonda_pncp.pyw`: instância única, `ping`/`encerrar`, argumentos, partida). O smoke contra o PNCP real (`--uma-rodada`) é
 manual e obrigatório antes de uma versão com mudança de comportamento.

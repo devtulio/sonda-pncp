@@ -26,9 +26,11 @@ from datetime import datetime, timedelta, UTC
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-VERSAO = "1.4.0"
+VERSAO = "1.4.1"
 FALHAS = {"erro_http", "erro_rede", "timeout", "corpo_invalido"}  # falha do lado do alvo
 OKS = {"ok", "lento"}  # resposta válida (lento = válida, porém acima do limiar)
+LIMITE_DESVIO_MS = 2000  # `desvio_relogio_s` só é gravado com resposta abaixo disto (ver _registro_sonda)
+FOLGA_VIGIA_S = 900  # rodada mais lenta possível (~8 min com tudo em timeout) + margem, antes do vigia acusar "parada"
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # armadilha: sem isso pisca janela
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -89,16 +91,89 @@ CURL_ERROS = {6: "dns", 7: "conexao_recusada", 18: "resposta_parcial", 28: "time
 
 # ───────────────────────── configuração ─────────────────────────
 
+MINIMOS_NUMERICOS = {  # chave -> valor mínimo aceito (0 em intervalo faria a sonda martelar o PNCP)
+    "intervalo_normal_s": 1, "intervalo_incidente_s": 1, "espera_entre_alvos_s": 0, "timeout_conexao_s": 1,
+    "timeout_total_s": 1, "retry_apos_falha_s": 0, "rodadas_sem_falha_para_sair_incidente": 1,
+    "falhas_seguidas_para_vermelho": 1, "limite_lacuna_x_intervalo": 1, "retencao_compactar_dias": 1,
+    "porta_instancia": 1}
+TIPOS_ALVO = ("controle", "portal", "api")
+
+
+def _gravar_json(arq, obj):
+    """Grava por arquivo temporário + `os.replace`: uma queda no meio não deixa o arquivo pela metade."""
+    tmp = arq.with_name(arq.name + ".tmp")
+    tmp.write_text(json.dumps(obj, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, arq)
+
+
 def carregar_config(pasta):
-    """Lê `config.json`; se não existir, grava os padrões. Chaves ausentes usam o padrão."""
+    """Lê `config.json`; se não existir, grava os padrões. Chaves ausentes usam o padrão.
+    Valor inválido levanta `ValueError` com a chave e o motivo (em vez de matar o laço horas depois)."""
     arq = Path(pasta) / "config.json"
     cfg = json.loads(json.dumps(CONFIG_PADRAO))
     if arq.exists():
-        cfg.update(json.loads(arq.read_text(encoding="utf-8")))
+        try:
+            lido = json.loads(arq.read_text(encoding="utf-8"))
+        except ValueError as e:
+            raise ValueError(f"config.json ilegível ({e}); corrija o arquivo ou apague-o para recriar os padrões") from e
+        if not isinstance(lido, dict):
+            raise ValueError("config.json deve ser um objeto JSON ({...})")
+        desconhecidas = sorted(set(lido) - set(CONFIG_PADRAO))
+        cfg.update(lido)
     else:
-        arq.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
-    _validar_teste(cfg)
+        desconhecidas = []
+        _gravar_json(arq, cfg)
+    _validar_config(cfg)
+    if desconhecidas:  # não derruba (pode ser chave de versão futura), mas erro de digitação não passa calado
+        avisar_texto(pasta, "config.json: chave(s) desconhecida(s), ignorada(s): " + ", ".join(desconhecidas))
     return cfg
+
+
+def avisar_texto(pasta, texto):
+    """Linha em logs/sonda-erros.log, sem nunca levantar (é o último recurso de aviso)."""
+    try:
+        (Path(pasta) / "logs").mkdir(parents=True, exist_ok=True)
+        with open(Path(pasta) / "logs" / "sonda-erros.log", "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now().astimezone().isoformat(timespec='seconds')}\n{texto}\n")
+    except OSError:
+        pass
+
+
+def _validar_config(cfg):
+    for chave, minimo in MINIMOS_NUMERICOS.items():
+        v = cfg[chave]
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v < minimo:
+            raise ValueError(f"config.json: {chave} deve ser um número >= {minimo} (veio {v!r})")
+    if not 1 <= cfg["porta_instancia"] <= 65535:
+        raise ValueError(f"config.json: porta_instancia deve estar entre 1 e 65535 (veio {cfg['porta_instancia']!r})")
+    for chave in ("notificar", "iniciar_com_windows"):
+        if not isinstance(cfg[chave], bool):
+            raise ValueError(f"config.json: {chave} deve ser true ou false (veio {cfg[chave]!r})")
+    if not isinstance(cfg["user_agent"], str) or not cfg["user_agent"].strip():
+        raise ValueError("config.json: user_agent deve ser um texto não vazio")
+    _validar_teste(cfg)
+    alvos = cfg["alvos"]
+    if not isinstance(alvos, list) or not any(isinstance(a, dict) and a.get("tipo") != "controle" for a in alvos):
+        raise ValueError("config.json: alvos deve ser uma lista com ao menos 1 alvo que não seja controle")
+    ids = set()
+    for i, a in enumerate(alvos):
+        if not isinstance(a, dict):
+            raise ValueError(f"config.json: alvos[{i}] deve ser um objeto")
+        for campo in ("id", "nome", "url"):
+            if not isinstance(a.get(campo), str) or not a[campo].strip():
+                raise ValueError(f"config.json: alvos[{i}].{campo} deve ser um texto não vazio")
+        if a["id"] in ids:
+            raise ValueError(f"config.json: id de alvo repetido: {a['id']!r}")
+        ids.add(a["id"])
+        if a.get("tipo") not in TIPOS_ALVO:
+            raise ValueError(f"config.json: alvos[{i}] ({a['id']}).tipo deve ser um de {', '.join(TIPOS_ALVO)}")
+        lim = a.get("limiar_lento_ms", 5000)
+        if isinstance(lim, bool) or not isinstance(lim, (int, float)) or lim <= 0:
+            raise ValueError(f"config.json: alvos[{i}] ({a['id']}).limiar_lento_ms deve ser um número > 0")
+        try:
+            expandir_url(a["url"], cfg=cfg)
+        except (KeyError, IndexError, ValueError) as e:
+            raise ValueError(f"config.json: url do alvo {a['id']!r} tem marcador inválido ou chave solta ({e!r})") from e
 
 
 def _validar_teste(cfg):
@@ -117,7 +192,7 @@ def salvar_config_chave(pasta, chave, valor):
     arq = Path(pasta) / "config.json"
     cfg = json.loads(arq.read_text(encoding="utf-8")) if arq.exists() else json.loads(json.dumps(CONFIG_PADRAO))
     cfg[chave] = valor
-    arq.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+    _gravar_json(arq, cfg)
 
 
 # ───────────────────────── medição ─────────────────────────
@@ -155,9 +230,22 @@ def medir(alvo, cfg):
     """Uma medição via `curl.exe`. Devolve o dicionário bruto (ainda sem classificar)."""
     url = expandir_url(alvo["url"], cfg=cfg)
     tmp = tempfile.mkdtemp(prefix="sonda_")
+    try:
+        return _medir_em(tmp, url, alvo, cfg)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)  # também quando a medição levanta
+
+
+def _caminho_curl():
+    """curl.exe do System32 primeiro: `shutil.which` procura antes no diretório atual (o atalho de autostart
+    define WorkingDirectory), e um curl.exe plantado ali seria executado."""
+    sistema = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "curl.exe"
+    return str(sistema) if sistema.exists() else (shutil.which("curl.exe") or str(sistema))
+
+
+def _medir_em(tmp, url, alvo, cfg):
     corpo_p, cab_p = os.path.join(tmp, "corpo"), os.path.join(tmp, "cab")
-    curl = shutil.which("curl.exe") or r"C:\Windows\System32\curl.exe"
-    cmd = [curl, "-sS", "-L", "--max-redirs", "3",
+    cmd = [_caminho_curl(), "-sS", "-L", "--max-redirs", "3", "--proto", "=http,https", "--proto-redir", "=http,https",
            "--connect-timeout", str(cfg["timeout_conexao_s"]), "--max-time", str(cfg["timeout_total_s"]),
            "-A", cfg["user_agent"], "-H", f"Accept: {alvo.get('accept', 'application/json')}",
            "--compressed", "-o", corpo_p, "-D", cab_p, "-w", "%{json}", url]
@@ -184,7 +272,7 @@ def medir(alvo, cfg):
                  total_ms=_ms(j.get("time_total")), bytes=int(j.get("size_download") or 0),
                  _conectou=bool(con))
     except subprocess.TimeoutExpired:
-        m.update(curl_exit=28, curl_erro="curl.exe excedeu o tempo (guarda da sonda)",
+        m.update(curl_exit=28, curl_erro="curl.exe excedeu o tempo (guarda da sonda)", _guarda=True,
                  total_ms=(cfg["timeout_total_s"] + 10) * 1000)
     except OSError as e:  # curl.exe ausente
         m.update(curl_exit=-2, curl_erro=str(e)[:200])
@@ -196,7 +284,6 @@ def medir(alvo, cfg):
             m["_cab"] = _parse_cabecalhos(f.read())
     except OSError:
         pass
-    shutil.rmtree(tmp, ignore_errors=True)
     return m
 
 
@@ -220,6 +307,8 @@ def classificar(m, alvo, cfg):
     if m["curl_exit"] != 0:
         nome = CURL_ERROS.get(m["curl_exit"], f"curl_{m['curl_exit']}")
         if m["curl_exit"] == 28:
+            if m.get("_guarda"):  # o curl nem devolveu o JSON: não dá para saber se conectou
+                return "timeout", "timeout_guarda"
             return "timeout", "timeout_resposta" if m["_conectou"] else "timeout_conexao"
         return "erro_rede", nome
     h = m["http"]
@@ -247,40 +336,73 @@ class Log:
 
     def escrever(self, rec):
         arq = self.dir / f"sonda-{rec['ts_local'][:10]}.jsonl"
-        linha = json.dumps(rec, ensure_ascii=False, separators=(",", ":")) + "\n"
-        with self._lock, open(arq, "a", encoding="utf-8") as f:
-            f.write(linha)  # fecha a cada linha: queda de energia perde no máximo uma
+        linha = (json.dumps(rec, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+        with self._lock, open(arq, "ab+") as f:  # fecha a cada linha: queda de energia perde no máximo uma
+            f.seek(0, 2)
+            if f.tell() > 0:
+                f.seek(-1, 2)
+                if f.read(1) != b"\n":  # linha anterior cortada: sem isto ela engoliria este registro
+                    f.write(b"\n")
+            f.write(linha)
 
 
-def ler_registros(pasta, ini, fim):
-    """Itera os registros dos dias [ini, fim] (datas), inclusive arquivos .gz."""
+def ler_registros(pasta, ini, fim, rejeitadas=None):
+    """Itera os registros dos dias [ini, fim] (datas), inclusive arquivos .gz. Tolerante a log estragado:
+    linha ilegível, que não seja objeto, byte inválido ou .gz truncado são pulados. Se `rejeitadas` (uma lista)
+    for dada, recebe uma entrada por linha ou arquivo ignorado, para o relatório poder dizer quantos foram."""
     d = ini
     while d <= fim:
-        for nome, abrir in ((f"sonda-{d}.jsonl", open), (f"sonda-{d}.jsonl.gz", gzip.open)):
-            arq = Path(pasta) / "logs" / nome
-            if arq.exists():
-                with abrir(arq, "rt", encoding="utf-8") as f:
+        puro, comprimido = Path(pasta) / "logs" / f"sonda-{d}.jsonl", Path(pasta) / "logs" / f"sonda-{d}.jsonl.gz"
+        # se os dois existem (compactação interrompida), vale o .jsonl: ler os dois contaria o dia em dobro
+        for arq, abrir in ((puro, open), (comprimido, gzip.open)) if not puro.exists() else ((puro, open),):
+            if not arq.exists():
+                continue
+            try:
+                with abrir(arq, "rt", encoding="utf-8", errors="replace") as f:
                     for linha in f:
+                        if not linha.strip():
+                            continue
                         try:
-                            yield json.loads(linha)
+                            r = json.loads(linha)
                         except ValueError:
-                            continue  # linha truncada (queda de energia)
+                            r = None  # linha truncada (queda de energia)
+                        if isinstance(r, dict) and "tipo" in r:
+                            yield r
+                        elif rejeitadas is not None:
+                            rejeitadas.append(arq.name)
+            except (OSError, EOFError):  # .gz truncado, arquivo travado
+                if rejeitadas is not None:
+                    rejeitadas.append(arq.name + " (arquivo ilegível)")
         d += timedelta(days=1)
 
 
+def _ts_registro(r):
+    try:
+        return datetime.fromisoformat(r["ts_utc"]).timestamp()
+    except (KeyError, TypeError, ValueError):
+        return 0.0
+
+
 def ultimo_registro(pasta):
+    """O registro de maior horário do log mais recente. O resumo de rodada é gravado no FIM da rodada com o
+    horário do INÍCIO, então a última linha do arquivo não é necessariamente a mais recente no tempo."""
     for arq in sorted((Path(pasta) / "logs").glob("sonda-*.jsonl"), reverse=True):
-        linhas = [x for x in arq.read_text(encoding="utf-8", errors="replace").splitlines() if x.strip()]
-        for linha in reversed(linhas):
+        candidatos = []
+        for linha in reversed(arq.read_text(encoding="utf-8", errors="replace").splitlines()[-60:]):
             try:
-                return json.loads(linha)
+                r = json.loads(linha)
             except ValueError:
                 continue
+            if isinstance(r, dict) and "tipo" in r:
+                candidatos.append(r)
+        if candidatos:
+            return max(candidatos, key=_ts_registro)
     return None
 
 
 def compactar_antigos(pasta, dias):
-    """Compacta em .gz os logs mais velhos que `dias` (mantém tudo, só ocupa menos)."""
+    """Compacta em .gz os logs mais velhos que `dias` (mantém tudo, só ocupa menos). Arquivo travado por outro
+    programa (antivírus, backup) fica para a próxima vez: nunca levanta."""
     corte = datetime.now().date() - timedelta(days=dias)
     n = 0
     for arq in (Path(pasta) / "logs").glob("sonda-*.jsonl"):
@@ -289,10 +411,16 @@ def compactar_antigos(pasta, dias):
         except ValueError:
             continue
         if dia < corte:
-            with open(arq, "rb") as f, gzip.open(str(arq) + ".gz", "wb") as g:
-                shutil.copyfileobj(f, g)
-            arq.unlink()
-            n += 1
+            gz = Path(str(arq) + ".gz")
+            tmp = Path(str(gz) + ".tmp")
+            try:
+                with open(arq, "rb") as f, gzip.open(tmp, "wb") as g:
+                    shutil.copyfileobj(f, g)
+                os.replace(tmp, gz)
+                arq.unlink()
+                n += 1
+            except OSError:
+                tmp.unlink(missing_ok=True)
     return n
 
 
@@ -324,6 +452,12 @@ class Sonda:
         self.ausentes = set()
         self._r24 = deque()
         self._dia_compactado = None
+        self.thread_laco = None  # a bandeja registra aqui a thread do laço, para o vigia saber se ela morreu
+        self.alerta = None  # "morta" | "parada" enquanto o vigia acusar; a bandeja desenha o ícone com isso
+        self.batimento = self.agora()  # última prova de vida do laço (cada medição e cada rodada)
+        self._bat_mono = time.monotonic()
+        self._erros_alvo = {}  # alvo -> quando avisamos pela última vez (evita um erro_interno por rodada)
+        self._curl_avisado = False
 
     # -- registros --
     def _ts(self, a=None):
@@ -335,10 +469,14 @@ class Sonda:
         self.log.escrever({"tipo": "evento", **self._ts(), "evento": nome, **campos})
 
     def registrar_erro(self, exc):
+        """Nunca levanta: é chamado de dentro de `except`, e se ele próprio falhasse (log travado, disco cheio)
+        levaria o laço junto. O arquivo de erros vai primeiro: é o que sobra quando o log principal é o problema."""
         tb = "".join(traceback.format_exception(exc))[-1500:]
-        self.evento("erro_interno", erro=str(exc)[:300], traceback=tb)
-        with open(self.pasta / "logs" / "sonda-erros.log", "a", encoding="utf-8") as f:
-            f.write(f"{self._ts()['ts_local']}\n{tb}\n")
+        avisar_texto(self.pasta, tb)
+        try:
+            self.evento("erro_interno", erro=str(exc)[:300], traceback=tb)
+        except Exception:  # noqa: BLE001  # nosec B110
+            pass  # já está no sonda-erros.log; não há mais para onde reportar
 
     def _registro_sonda(self, rid, alvo, tentativa, m, resultado, detalhe):
         a = self._ts(m["_fim"])
@@ -351,7 +489,8 @@ class Sonda:
                "ttfb_ms": m["ttfb_ms"], "total_ms": m["total_ms"], "bytes": m["bytes"],
                "cabecalhos": {k: cab[k] for k in ("date", "server", "via", "retry-after", "content-type",
                                                   "content-length") if k in cab}}
-        if cab.get("date"):
+        if cab.get("date") and m["total_ms"] < LIMITE_DESVIO_MS:
+            # só com resposta rápida: o erro da estimativa é metade da latência (em 26 s, ±13 s de erro)
             try:  # estimativa: relógio local no meio da requisição menos o Date do servidor (±latência)
                 meio = m["_inicio"] + (m["_fim"] - m["_inicio"]) / 2
                 rec["desvio_relogio_s"] = round((meio - parsedate_to_datetime(cab["date"])).total_seconds(), 1)
@@ -369,11 +508,45 @@ class Sonda:
             rec["corpo_sha256"] = hashlib.sha256(m["_corpo"]).hexdigest()[:16]
         return rec
 
+    def _avisar(self, titulo, msg):
+        """Notificação nunca derruba a rodada nem deixa de registrar o estado."""
+        try:
+            self.notificar(titulo, msg)
+        except Exception as e:  # noqa: BLE001
+            self.registrar_erro(e)
+
+    def _falha_do_alvo(self, alvo, e):
+        """Erro interno ao medir UM alvo (por exemplo, uma URL do config com marcador inválido): registra e segue
+        com os demais. Avisa no máximo 1 vez por hora por alvo, para não gerar um erro_interno a cada rodada."""
+        agora = time.monotonic()
+        if agora - self._erros_alvo.get(alvo["id"], -1e9) > 3600:
+            self._erros_alvo[alvo["id"]] = agora
+            self.registrar_erro(e)
+            if self.cfg["notificar"]:
+                self._avisar("Sonda PNCP: alvo não medido", f"{alvo['nome']}: erro interno (ver sonda-erros.log).")
+
     def _medir_alvo(self, alvo, rid, tentativa):
-        m = self.medir(alvo, self.cfg)
+        """Devolve o resultado, ou None se o alvo não pôde ser medido (erro interno) ou se a sonda está encerrando
+        (medição em andamento no encerramento é descartada: nada pode ser gravado depois de `sonda_encerrada`)."""
+        try:
+            m = self.medir(alvo, self.cfg)
+        except Exception as e:  # noqa: BLE001 - um alvo com defeito não pode derrubar a rodada dos outros
+            self._falha_do_alvo(alvo, e)
+            return None
+        if self.parar.is_set():
+            return None
+        self._pulso()
         resultado, detalhe = classificar(m, alvo, self.cfg)
         self.log.escrever(self._registro_sonda(rid, alvo, tentativa, m, resultado, detalhe))
-        if m["ip"] and self.ips.get(alvo["id"]) not in (None, m["ip"]):
+        if m["curl_exit"] == -2 and not self._curl_avisado:  # curl.exe ausente ou bloqueado (Smart App Control, antivírus)
+            self._curl_avisado = True
+            self.registrar_erro(RuntimeError(f"curl.exe indisponível: {m['curl_erro']}"))
+            if self.cfg["notificar"]:
+                self._avisar("Sonda PNCP: curl.exe indisponível", "Sem o curl.exe a sonda não mede nada.")
+        elif m["curl_exit"] != -2:
+            self._curl_avisado = False
+        if m["ip"] and alvo["tipo"] != "controle" and self.ips.get(alvo["id"]) not in (None, m["ip"]):
+            # controles (Google, Cloudflare) trocam de IP a cada consulta por balanceamento: seria só ruído
             self.evento("mudanca_ip", alvo=alvo["id"], de=self.ips[alvo["id"]], para=m["ip"])
         if m["ip"]:
             self.ips[alvo["id"]] = m["ip"]
@@ -381,8 +554,8 @@ class Sonda:
             self.ausentes.add(alvo["id"])  # avisa uma vez; não é queda do PNCP, é o teste que precisa de novo registro
             self.evento("registro_ausente", alvo=alvo["id"], url=m["url"])
             if self.cfg["notificar"]:
-                self.notificar("Sonda PNCP: registro de teste sumiu",
-                               f"{alvo['nome']}: trocar compra_teste no config.json (não conta como falha).")
+                self._avisar("Sonda PNCP: registro de teste sumiu",
+                             f"{alvo['nome']}: trocar compra_teste no config.json (não conta como falha).")
         elif resultado != "registro_ausente":
             self.ausentes.discard(alvo["id"])
         return resultado
@@ -401,29 +574,62 @@ class Sonda:
                 pass
             campos["encerramento_anterior_limpo"] = ult.get("evento") == "sonda_encerrada"
         self.evento("sonda_iniciada", **campos)
-        self._carregar_24h()
-        compactar_antigos(self.pasta, self.cfg["retencao_compactar_dias"])
+        self._pulso()
+        for etapa in (self._carregar_24h, lambda: compactar_antigos(self.pasta, self.cfg["retencao_compactar_dias"])):
+            try:  # acessórios da partida: falhar aqui não pode impedir a sonda de medir
+                etapa()
+            except Exception as e:  # noqa: BLE001
+                self.registrar_erro(e)
 
     def encerrar(self, motivo):
-        self.evento("sonda_encerrada", motivo=motivo, rodadas=self.n_rodada)
+        # `parar` primeiro: com o log falhando o evento levantaria e a sonda continuaria rodando ("Encerrar" sem efeito)
         self.parar.set()
         self.disparar.set()
+        try:
+            self.evento("sonda_encerrada", motivo=motivo, rodadas=self.n_rodada)
+        except Exception as e:  # noqa: BLE001
+            self.registrar_erro(e)
 
     def pausar(self, sim):
         self.pausada = sim
         if sim:
             self.houve_pausa = True
-        self.evento("pausada" if sim else "retomada_manual")
-        self.ao_mudar()
+        else:
+            self._pulso()  # o vigia não deve estranhar o tempo em que ficou pausada
+        try:
+            self.evento("pausada" if sim else "retomada_manual")
+            self.ao_mudar()
+        except Exception as e:  # noqa: BLE001
+            self.registrar_erro(e)
 
     def _carregar_24h(self):
         agora = self.agora()
         hoje = agora.astimezone().date()
         for r in ler_registros(self.pasta, hoje - timedelta(days=1), hoje):
             if r.get("tipo") == "rodada":
-                t = datetime.fromisoformat(r["ts_utc"])
-                if t >= agora - timedelta(hours=24):
-                    self._r24.append((t, r["estado"]))
+                try:
+                    t = datetime.fromisoformat(r["ts_utc"])
+                    if t >= agora - timedelta(hours=24):
+                        self._r24.append((t, r["estado"]))
+                except (KeyError, TypeError, ValueError):
+                    continue  # rodada estragada no log: ignora só ela
+
+    def _pulso(self):
+        self.batimento = self.agora()
+        self._bat_mono = time.monotonic()
+
+    def saude(self):
+        """Vigia: None se está tudo bem; "morta" se a thread do laço terminou sem ninguém ter pedido;
+        "parada" se ela está viva mas sem medir há muito mais do que a rodada mais lenta possível."""
+        t = self.thread_laco
+        if t is None or self.pausada or self.parar.is_set():
+            return None
+        if not t.is_alive():
+            return "morta"
+        limite = self.proximo_esperado_s + FOLGA_VIGIA_S
+        # os dois relógios: ao voltar de uma suspensão o de parede salta horas, e isso não é o laço travado
+        parada = (self.agora() - self.batimento).total_seconds() > limite and time.monotonic() - self._bat_mono > limite
+        return "parada" if parada else None
 
     def disponibilidade_24h(self):
         corte = self.agora() - timedelta(hours=24)
@@ -447,6 +653,7 @@ class Sonda:
     def rodada(self):
         t0 = time.monotonic()
         agora = self.agora()
+        self._pulso()
         self.n_rodada += 1
         rid = f"{agora.astimezone():%Y%m%dT%H%M%S}-{self.n_rodada}"
         self._checar_lacuna(agora)
@@ -454,27 +661,33 @@ class Sonda:
         controles = [a for a in alvos if a["tipo"] == "controle"]
         pncp = [a for a in alvos if a["tipo"] != "controle"]
         res_ctrl = []
+        interrompida = False
         for a in controles:
-            res_ctrl.append(self._medir_alvo(a, rid, 1))
+            if self.parar.is_set():
+                interrompida = True
+                break
+            res_ctrl.append(self._medir_alvo(a, rid, 1))  # None = não medido (erro interno) ou encerrando
             self.dormir(self.cfg["espera_entre_alvos_s"])
         rede_ok = not controles or any(r in OKS for r in res_ctrl)
         finais = {}
-        interrompida = False
-        if rede_ok:
+        if rede_ok and not interrompida:
             for a in pncp:
                 if self.parar.is_set():
                     interrompida = True
                     break
                 r = self._medir_alvo(a, rid, 1)
+                if r is None:  # encerrando, ou erro interno neste alvo (já registrado): segue com os outros
+                    continue
                 final = r
                 if r in FALHAS:  # o primeiro erro fica registrado; a 2ª tentativa separa soluço de falha
                     self.dormir(self.cfg["retry_apos_falha_s"])
                     r2 = self._medir_alvo(a, rid, 2)
-                    final = "blip" if r2 in OKS else r2
+                    final = "blip" if r2 in OKS else (r2 or r)
                 finais[a["id"]] = final
                 self.dormir(self.cfg["espera_entre_alvos_s"])
-        if interrompida:  # encerrando no meio: resumo parcial enganaria e cairia depois do "sonda_encerrada"
+        if interrompida or self.parar.is_set():  # encerrando: resumo parcial enganaria e cairia depois do "sonda_encerrada"
             return None
+        nao_medidos = rede_ok and any(a["id"] not in finais for a in pncp)
         falhas = sorted(k for k, v in finais.items() if v in FALHAS)
         blips = sorted(k for k, v in finais.items() if v == "blip")
         lentos = sorted(k for k, v in finais.items() if v == "lento")
@@ -484,7 +697,7 @@ class Sonda:
             estado = "sem_rede"
         elif falhas:
             estado = "falha"
-        elif blips or lentos or bloqueios or ausentes:
+        elif blips or lentos or bloqueios or ausentes or nao_medidos:  # alvo não medido nunca vira "ok"
             estado = "degradado"
         else:
             estado = "ok"
@@ -505,7 +718,10 @@ class Sonda:
         if self._dia_compactado != dia:
             self._dia_compactado = dia
             compactar_antigos(self.pasta, self.cfg["retencao_compactar_dias"])
-        self.ao_mudar()
+        try:
+            self.ao_mudar()  # redesenhar o ícone falhar não pode desfazer a rodada nem a cadência do incidente
+        except Exception as e:  # noqa: BLE001
+            self.registrar_erro(e)
         return rec
 
     def _atualizar(self, estado, falhas):
@@ -526,39 +742,57 @@ class Sonda:
         cor = {"ok": "verde", "degradado": "amarelo", "sem_rede": "cinza",
                "falha": "vermelho" if self.streak >= cfg["falhas_seguidas_para_vermelho"] else "amarelo"}[estado]
         if cor != self.cor:
-            self.evento("mudanca_estado", de=self.cor, para=cor, estado_rodada=estado, falhas=falhas)
+            antes, self.cor = self.cor, cor  # a cor muda mesmo que o log ou a notificação falhem
+            self.evento("mudanca_estado", de=antes, para=cor, estado_rodada=estado, falhas=falhas)
             if cfg["notificar"]:
                 if cor == "vermelho":
-                    self.notificar("Sonda PNCP: falha confirmada", "Falha em: " + ", ".join(falhas))
-                elif self.cor == "vermelho" and cor in ("verde", "amarelo"):
-                    self.notificar("Sonda PNCP: PNCP recuperou", "As consultas voltaram a responder.")
-            self.cor = cor
+                    self._avisar("Sonda PNCP: falha confirmada", "Falha em: " + ", ".join(falhas))
+                elif antes == "vermelho" and cor in ("verde", "amarelo"):
+                    self._avisar("Sonda PNCP: PNCP recuperou", "As consultas voltaram a responder.")
         # sem rede: rechecar cedo (só 2 requisições); falha: modo incidente (1 min); senão, normal
         return cfg["intervalo_incidente_s"] if (self.incidente or estado == "sem_rede") \
             else cfg["intervalo_normal_s"]
 
     # -- laço (roda em thread) --
     def laco(self):
+        try:
+            self._laco()
+        except BaseException as e:  # a thread vai terminar: deixa a causa registrada (registrar_erro não levanta)
+            self.registrar_erro(e)
+            raise
+
+    @staticmethod
+    def _espera_segura(x):
+        try:
+            return max(0.05, float(x))  # o config validado nunca traz < 1 s; o piso só evita um laço quente
+        except (TypeError, ValueError):
+            return 300.0
+
+    def _laco(self):
         while not self.parar.is_set():
-            if self.pausada:
-                self.disparar.wait(2)
-                self.disparar.clear()
-                continue
+            espera = None
             try:
+                if self.pausada:
+                    self.disparar.wait(2)
+                    self.disparar.clear()
+                    continue
                 rec = self.rodada()
                 if rec is None:
                     break
                 espera = rec["proxima_em_s"]
             except Exception as e:  # noqa: BLE001 - a sonda nunca pode morrer calada
                 self.registrar_erro(e)
-                espera = self.cfg["intervalo_normal_s"]
-            self.disparar.wait(espera)
+            if espera is None:  # a rodada falhou: mantém a última cadência conhecida (não volta ao modo normal)
+                espera = self.proximo_esperado_s
+            self.disparar.wait(self._espera_segura(espera))
             self.disparar.clear()
 
     # -- textos da bandeja --
     TXT = {"verde": "OK", "amarelo": "atenção", "vermelho": "FALHA", "cinza": "sem rede local"}
 
     def texto_status(self):
+        if self.alerta:
+            return f"PARADA - sem medir desde {self.batimento.astimezone():%H:%M}"
         if self.pausada:
             return "Sonda PNCP - pausada"
         if not self.ultima:
@@ -570,6 +804,8 @@ class Sonda:
     def tooltip(self):
         d = self.disponibilidade_24h()
         disp = "n/d" if d is None else f"{d:.1f}%".replace(".", ",")
+        if self.alerta:
+            return f"Sonda PNCP - PAROU de medir às {self.batimento.astimezone():%H:%M}. Reinicie."[:127]
         if self.pausada:
             return f"Sonda PNCP - pausada · 24 h: {disp}"[:127]
         hora = "--:--" if not self.ultima else datetime.fromisoformat(self.ultima["ts_local"]).strftime("%H:%M")
@@ -598,11 +834,16 @@ def _fmt(iso):
     return datetime.fromisoformat(iso).strftime("%d/%m/%Y %H:%M:%S") if iso else ""
 
 
+def _celula(v):
+    """Texto que vem do PNCP (corpo da resposta) e começa com = + - @ vira fórmula no Excel de quem abre o anexo."""
+    return "'" + v if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r") else v
+
+
 def _csv(caminho, cabecalho, linhas):
     with open(caminho, "w", newline="", encoding="utf-8-sig") as f:  # ';' e BOM: Excel em português
         w = csv.writer(f, delimiter=";")
         w.writerow(cabecalho)
-        w.writerows(linhas)
+        w.writerows([_celula(v) for v in linha] for linha in linhas)
 
 
 MARCAS_PNCP = (("banco de dados", "Erro na comunicação com o banco de dados"),
@@ -614,12 +855,17 @@ def gerar_relatorio(pasta, dias=7, agora=None):
     cfg = carregar_config(pasta)
     agora = (agora or datetime.now()).astimezone()
     ini, fim = (agora - timedelta(days=dias - 1)).date(), agora.date()
-    regs = list(ler_registros(pasta, ini, fim))
+    rejeitadas = []
+    regs = list(ler_registros(pasta, ini, fim, rejeitadas))
     sondas = [r for r in regs if r["tipo"] == "sonda"]
     rodadas = sorted((r for r in regs if r["tipo"] == "rodada"), key=lambda r: r["ts_utc"])
     eventos = [r for r in regs if r["tipo"] == "evento"]
-    out = Path(pasta) / "relatorios" / f"relatorio-{agora:%Y%m%d}"  # 1 por dia: gerar de novo sobrescreve
-    out.mkdir(parents=True, exist_ok=True)
+    destino = Path(pasta) / "relatorios" / f"relatorio-{agora:%Y%m%d}"  # 1 por dia: gerar de novo sobrescreve
+    # tudo é gerado numa pasta de trabalho e só então vira a pasta do dia: falha no meio não deixa arquivos de
+    # duas gerações misturados (o que acontece se um CSV estiver aberto no Excel e a cópia parar no meio)
+    out = destino.with_name(destino.name + ".novo")
+    shutil.rmtree(out, ignore_errors=True)
+    out.mkdir(parents=True)
 
     # 1) resumo diário por alvo (1ª tentativa; 429 fora da disponibilidade)
     grupos = defaultdict(list)
@@ -679,15 +925,15 @@ def gerar_relatorio(pasta, dias=7, agora=None):
                                      "Rodada"], linhas)
 
     # 4) cobertura diária e 5) lacunas (ausência de registro NÃO é disponibilidade)
-    esperadas_dia = 86400 / cfg["intervalo_normal_s"]
     por_dia = Counter(r["ts_local"][:10] for r in rodadas)
     linhas = []
-    d = ini
+    # só conta a partir de quando a sonda existe: antes do 1º registro não havia o que esperar (não é "cobertura 0%")
+    primeira = datetime.fromisoformat(rodadas[0]["ts_local"]) if rodadas else None
+    d = max(ini, primeira.date()) if primeira else ini
     while d <= fim:
-        esp = esperadas_dia
-        if d == agora.date():
-            esp = max(1, (agora - agora.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds()
-                      / cfg["intervalo_normal_s"])
+        de = max(datetime.combine(d, datetime.min.time(), tzinfo=agora.tzinfo), primeira) if primeira else agora
+        ate = agora if d == agora.date() else datetime.combine(d + timedelta(days=1), datetime.min.time(), tzinfo=agora.tzinfo)
+        esp = max(1, (ate - de).total_seconds() / cfg["intervalo_normal_s"])
         n = por_dia.get(str(d), 0)
         linhas.append([d.strftime("%d/%m/%Y"), n, round(esp), f"{min(100, 100 * n / esp):.1f}".replace(".", ",")])
         d += timedelta(days=1)
@@ -697,13 +943,33 @@ def gerar_relatorio(pasta, dias=7, agora=None):
     for a, b in zip(rodadas, rodadas[1:], strict=False):
         ta, tb = datetime.fromisoformat(a["ts_utc"]), datetime.fromisoformat(b["ts_utc"])
         if tb - ta > limite:
-            ev = [e for e in eventos if e["evento"] in ("retomada_apos_lacuna", "sonda_iniciada", "pausada")
+            ev = [e for e in eventos if e.get("evento") in ("retomada_apos_lacuna", "sonda_iniciada", "pausada",
+                                                              "erro_interno")
                   and ta <= datetime.fromisoformat(e["ts_utc"]) <= tb]
-            motivo = ev[-1].get("motivo") or ev[-1]["evento"] if ev else "sem registro (PC desligado/suspenso?)"
+            motivo = ev[-1].get("motivo") or ev[-1]["evento"] if ev else "sem registro (PC desligado, suspenso ou sonda parada?)"
             linhas.append([_fmt(a["ts_local"]), _fmt(b["ts_local"]), round((tb - ta).total_seconds() / 60, 1), motivo])
     _csv(out / "5_lacunas.csv", ["Último registro antes", "Primeiro registro depois", "Duração (min)", "Motivo"], linhas)
-    _resumo_html(out, cfg, ini, fim, sondas, rodadas, jan, len(linhas))
-    return out
+    _resumo_html(out, cfg, ini, fim, sondas, rodadas, jan, len(linhas), len(rejeitadas))
+    return _publicar(out, destino, agora)
+
+
+def _publicar(pronta, destino, agora):
+    """Troca a pasta do dia pela recém-gerada. Se a antiga não puder ser renomeada (arquivo aberto no Excel),
+    a nova fica numa pasta com a hora no nome: melhor duas pastas completas do que uma misturada."""
+    velha = destino.with_name(destino.name + ".velha")
+    shutil.rmtree(velha, ignore_errors=True)
+    try:
+        if destino.exists():
+            os.replace(destino, velha)
+        os.replace(pronta, destino)
+    except OSError:
+        if velha.exists() and not destino.exists():
+            os.replace(velha, destino)  # desfaz: o dia não pode ficar sem pasta
+        alt = destino.with_name(f"{destino.name}-{agora:%H%M%S}")
+        os.replace(pronta, alt)
+        return alt
+    shutil.rmtree(velha, ignore_errors=True)
+    return destino
 
 
 def br(x, casas=2):
@@ -712,8 +978,9 @@ def br(x, casas=2):
 
 LIMIARES_ROTULO = (99.0, 95.0)  # disponibilidade % do período: >= 99 Operacional, >= 95 Com problemas, senão Instável
 ROTULOS = {"ok": "Operacional", "lento": "Com problemas", "falha": "Instável", "vazio": "Sem dados"}
-COR_BARRA = {"ok": "#16a34a", "lento": "#d97706", "falha": "#dc2626", "429": "#64748b", "vazio": "#94a3b8"}
-NOME_BARRA = {"ok": "ok", "lento": "lenta", "falha": "falha", "429": "HTTP 429"}
+COR_BARRA = {"ok": "#16a34a", "lento": "#d97706", "falha": "#dc2626", "429": "#64748b", "vazio": "#94a3b8",
+             "ausente": "#8b5cf6"}
+NOME_BARRA = {"ok": "ok", "lento": "lenta", "falha": "falha", "429": "HTTP 429", "ausente": "registro de teste ausente"}
 MAX_BARRAS = 300
 MAX_JANELAS_HTML = 12  # a lista completa fica no CSV; o HTML precisa caber no A4
 
@@ -726,12 +993,15 @@ def _granularidade(span_s, base_s):
     return 86400, "1 dia"
 
 
-def _cor_do_balde(n, nf, nl, n429):
-    """Cor de um intervalo: vermelho se >= 25% falharam; âmbar se houve falha ou >= 25% lentas; cinza se só 429."""
+def _cor_do_balde(n, nf, nl, n429, naus=0):
+    """Cor de um intervalo: vermelho se >= 25% falharam; âmbar se houve falha ou >= 25% lentas; cinza se só 429;
+    violeta se só registro de teste ausente (não é queda, e não é "ok" nem "sem dados")."""
     if nf / n >= 0.25:
         return "falha"
     if nf or nl / n >= 0.25:
         return "lento"
+    if naus == n:
+        return "ausente"
     return "429" if n429 == n else "ok"
 
 
@@ -745,9 +1015,26 @@ def _baldes(medicoes, t0, tam, teto_s):
         nf = sum(r in FALHAS for r, _ in g)
         nl = sum(r == "lento" for r, _ in g)
         n429 = sum(r == "bloqueio_429" for r, _ in g)
-        lat = [teto_s if r in FALHAS else ms / 1000 for r, ms in g if r != "bloqueio_429"]
-        out[i] = (_cor_do_balde(len(g), nf, nl, n429), _pct(lat, 95) if lat else 0, len(g), nf, nl)
+        naus = sum(r == "registro_ausente" for r, _ in g)
+        lat = [teto_s if r in FALHAS else ms / 1000 for r, ms in g if r not in ("bloqueio_429", "registro_ausente")]
+        out[i] = (_cor_do_balde(len(g), nf, nl, n429, naus), _pct(lat, 95) if lat else 0, len(g), nf, nl)
     return out
+
+
+def _periodo_mediano(por_alvo, base_s):
+    """Mediana do tempo entre medições consecutivas do mesmo alvo (ignora lacunas de verdade, > 3 × o intervalo)."""
+    gaps = []
+    for v in por_alvo.values():
+        ts = sorted(m[0] for m in v)
+        gaps += [b - a for a, b in zip(ts, ts[1:], strict=False) if b - a < 3 * base_s]
+    gaps.sort()
+    return gaps[len(gaps) // 2] if gaps else base_s
+
+
+def _cor_da_medicao(resultado):
+    if resultado in FALHAS:
+        return "falha"
+    return {"lento": "lento", "bloqueio_429": "429", "registro_ausente": "ausente"}.get(resultado, "ok")
 
 
 def _rotulo(disp):
@@ -767,6 +1054,10 @@ def _grafico(sondas, alvos, cfg):
         return "<p>Sem dados no período.</p>"
     t0, t1 = min(m[0] for m in todos), max(m[0] for m in todos)
     tam, nome_tam = _granularidade(t1 - t0, cfg["intervalo_normal_s"])
+    fino = tam == cfg["intervalo_normal_s"]  # período curto: uma barra por medição, na posição real
+    if fino:
+        nome_tam = "1 medição"
+        periodo = _periodo_mediano(por_alvo, cfg["intervalo_normal_s"])
     n_barras = int((t1 - t0) // tam) + 1
     W, alt = 576, 34
     bw = W / n_barras
@@ -781,14 +1072,24 @@ def _grafico(sondas, alvos, cfg):
         rot = _rotulo(disp)
         contagem[rot] += 1
         barras = []
-        for i, (cor, p95s, n, nf, nl) in sorted(_baldes(med, t0, tam, teto).items()):
-            h = 1.0 if cor == "falha" else max(0.08, math.sqrt(min(p95s, teto) / teto))
-            ini = datetime.fromtimestamp(t0 + i * tam)
-            quando = f"{ini:%d/%m}" if fmt_dia else f"{ini:%d/%m %H:%M}"
-            dica = (f"{quando} — {NOME_BARRA[cor]} — {br(p95s, 1)} s" if n == 1 else
-                    f"{quando} — {n} medições: {nf} falha(s), {nl} lenta(s) — p95 {br(p95s, 1)} s")
+        if fino:  # (posição, largura, cor, latência em s, horário)
+            larg = max(1.4, min(24.0, W * 0.8 * periodo / max(t1 - t0, periodo)))
+            itens = [((t - t0) / max(t1 - t0, 1) * (W - larg), larg, _cor_da_medicao(r),
+                      teto if r in FALHAS else ms / 1000, datetime.fromtimestamp(t).strftime("%d/%m %H:%M:%S"))
+                     for t, r, ms in med]
+        else:
+            itens = []
+            for i, (cor, p95s, n, nf, nl) in sorted(_baldes(med, t0, tam, teto).items()):
+                ini = datetime.fromtimestamp(t0 + i * tam)
+                quando = f"{ini:%d/%m}" if fmt_dia else f"{ini:%d/%m %H:%M}"
+                if n > 1:
+                    quando += f" ({n} medições: {nf} falha(s), {nl} lenta(s))"
+                itens.append((i * bw, bw * 0.8, cor, p95s, quando))
+        for x, larg_b, cor, lat_s, quando in itens:
+            h = 1.0 if cor == "falha" else (0.08 if cor == "ausente" else max(0.08, math.sqrt(min(lat_s, teto) / teto)))
+            dica = f"{quando} — {NOME_BARRA[cor]}" + ("" if cor == "ausente" else f" — {br(lat_s, 1)} s")
             fill = "url(#hach)" if cor == "falha" else COR_BARRA[cor]
-            barras.append(f'<rect x="{i * bw:.2f}" y="{alt * (1 - h):.2f}" width="{bw * 0.8:.2f}" height="{alt * h:.2f}" '
+            barras.append(f'<rect x="{x:.2f}" y="{alt * (1 - h):.2f}" width="{larg_b:.2f}" height="{alt * h:.2f}" '
                           f'fill="{fill}"><title>{esc(dica)}</title></rect>')
         nums = (f"disp. {br(disp, 1)}% · p95 {br(_pct(lat, 95) / 1000, 1)} s" if disp is not None and lat
                 else "sem medições válidas")
@@ -809,7 +1110,8 @@ def _grafico(sondas, alvos, cfg):
               f'<b style="color:{COR_BARRA["falha"]}">{n_rot["falha"]} instável</b>{sem_dados}· no período</div></div>'
               f'<span class="badge">{selo[0]}</span></div>')
     leg = "".join(f'<span><i style="background:{COR_BARRA[k]}"></i>{n}</span>'
-                  for k, n in (("ok", "ok"), ("lento", "lenta (acima do limiar)"), ("429", "HTTP 429 (limitação)")))
+                  for k, n in (("ok", "ok"), ("lento", "lenta (acima do limiar)"), ("429", "HTTP 429 (limitação)"),
+                               ("ausente", "registro de teste ausente")))
     leg += (f'<span><svg width="11" height="11" style="vertical-align:-1px;margin-right:5px"><rect width="11" height="11" '
             f'fill="url(#hach)" stroke="{COR_BARRA["falha"]}"/></svg>falha (tempo esgotado ou erro)</span>')
     return (f'<svg width="0" height="0" style="position:absolute"><defs><pattern id="hach" width="4" height="4" '
@@ -867,10 +1169,12 @@ tr{break-inside:avoid}}
 """
 
 
-def _resumo_html(out, cfg, ini, fim, sondas, rodadas, janelas, n_lacunas):
+def _resumo_html(out, cfg, ini, fim, sondas, rodadas, janelas, n_lacunas, n_rejeitadas=0):
     """Página única, imprimível, para anexar ao chamado. Só números que o log sustenta."""
     esc = html.escape
     alvos = [a for a in cfg["alvos"] if a["tipo"] != "controle"]
+    aviso_log = (f" <b>{n_rejeitadas} linha(s) do log estavam ilegíveis e foram ignoradas</b> "
+                 "(queda de energia ou arquivo estragado)." if n_rejeitadas else "")
     primeira = rodadas[0]["ts_local"] if rodadas else ""
     ultima = rodadas[-1]["ts_local"] if rodadas else ""
     # esperadas: da 1ª à última rodada registrada (antes da 1ª a sonda não existia)
@@ -924,8 +1228,8 @@ data-ph="[clique aqui e preencha a identificação antes de anexar]"></span>
 </script>
 <h2>Cobertura</h2>
 <p>{len(rodadas)} rodadas registradas (de ~{round(esperadas)} esperadas entre a primeira e a última, a cada
-{cfg['intervalo_normal_s'] // 60} min), de {_fmt(primeira) or '-'} a {_fmt(ultima) or '-'}; {n_lacunas} lacuna(s) por PC
-desligado ou suspenso. Ausência de registro não é contada como disponibilidade.</p>
+{cfg['intervalo_normal_s'] // 60} min), de {_fmt(primeira) or '-'} a {_fmt(ultima) or '-'}; {n_lacunas} lacuna(s) sem registro
+(PC desligado ou suspenso, sonda parada ou pausada). Ausência de registro não é contada como disponibilidade.{aviso_log}</p>
 <h2>Resultado por serviço (1ª tentativa de cada medição)</h2>
 <table><tr><th>Serviço</th><th>Medições</th><th>Disp. %</th><th>Falhas</th><th>Recuperadas na 2ª tentativa</th>
 <th>Falhas confirmadas</th><th>Lentas</th><th>HTTP 429</th><th>p50 ms</th><th>p95 ms</th><th>Máx ms</th>
