@@ -403,7 +403,7 @@ Página única, imprimível em A4, autocontida (SVG inline, sem dependências):
     disponibilidade. Passar o mouse mostra horário e números do intervalo.
   - *Rótulo do período:* disponibilidade ≥ 99% **Operacional**, ≥ 95% **Com
     problemas**, abaixo **Instável**; sem medição = **Sem dados**. Os limites
-    são `LIMIARES_ROTULO` em `sonda_core.py` (podem ser recalibrados).
+    são `LIMIARES_ROTULO` em `sonda_relatorio.py` (podem ser recalibrados).
 - **Janelas de incidente** (até 12; o CSV tem todas), **exemplos de falha**
   (até 8) e **método**.
 - O campo **Solicitante**, editável direto na página: clique, digite e imprima ou

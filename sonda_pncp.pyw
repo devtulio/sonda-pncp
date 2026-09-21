@@ -22,6 +22,7 @@ RAIZ = Path(__file__).resolve().parent
 sys.path.insert(0, str(RAIZ))
 
 import sonda_core as core  # noqa: E402
+import sonda_relatorio as relatorio  # noqa: E402
 
 STARTUP = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
 ATALHO = STARTUP / "Sonda PNCP.lnk"
@@ -209,7 +210,7 @@ def bandeja():
 
     def gerar():
         try:
-            pasta = core.gerar_relatorio(RAIZ, 7)
+            pasta = relatorio.gerar_relatorio(RAIZ, 7)
             _notificar("Sonda PNCP", f"Relatório gerado: {pasta.name}")
             os.startfile(pasta)  # nosec
         except Exception as e:  # noqa: BLE001
@@ -313,7 +314,7 @@ def main(argv):
             if dias is None:
                 print(USO, file=sys.stderr)
                 return 2
-            print(core.gerar_relatorio(RAIZ, dias))
+            print(relatorio.gerar_relatorio(RAIZ, dias))
             return 0
     except ValueError as e:  # config.json inválido
         print(f"erro: {e}", file=sys.stderr)

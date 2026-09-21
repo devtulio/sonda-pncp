@@ -27,7 +27,7 @@ Só isto é coberto pelo número de versão:
   conta como falha, lenta, 429 e registro ausente.
 
 **Não é contrato** (mesmo que alguém dependa — Hyrum's Law): as funções e
-classes de `sonda_core.py` (a sonda não é uma biblioteca), texto de
+classes de `sonda_core.py` e `sonda_relatorio.py` (a sonda não é uma biblioteca), texto de
 notificações, de dica do ícone e de menu, layout visual e estilo do
 HTML/SVG, **valores** default (intervalos, timeouts, limiares
 `limiar_lento_ms`, `LIMIARES_DEMORA_S` — podem ser recalibrados em
@@ -73,7 +73,7 @@ corrigido mais rápido (Khomh et al.).
 ## 5. Gates antes de qualquer tag
 
 1. `.venv\Scripts\python.exe -m unittest discover -s tests` verde.
-2. `ruff check .` e `bandit -q -c pyproject.toml sonda_core.py sonda_pncp.pyw`
+2. `ruff check .` e `bandit -q -c pyproject.toml sonda_core.py sonda_relatorio.py sonda_pncp.pyw`
    limpos (o CI roda os dois; o `bandit` recebe os arquivos por nome porque
    o `-r` não olha `.pyw`).
 3. **Mudança de comportamento exige smoke contra o PNCP real**:

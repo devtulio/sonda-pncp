@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import sonda_core as core  # noqa: E402
+import sonda_relatorio as rel  # noqa: E402
 
 HTML = "<html>" + "x" * 3000 + "</html>"
 PORT = None
@@ -427,36 +428,36 @@ class TestDemora(unittest.TestCase):
         def x(res, ms):
             return {"resultado": res, "total_ms": ms}
         s1 = [x("ok", 500), x("lento", 12000), x("timeout", 30000), x("erro_http", 50), x("bloqueio_429", 40)]
-        self.assertEqual(core._demora(s1, 10), "66,7")  # 2 de 3 (erro rápido e 429 fora da base)
-        self.assertEqual(core._demora(s1, 20), "33,3")
-        self.assertEqual(core._demora([x("erro_http", 50)], 10), "")
+        self.assertEqual(rel._demora(s1, 10), "66,7")  # 2 de 3 (erro rápido e 429 fora da base)
+        self.assertEqual(rel._demora(s1, 20), "33,3")
+        self.assertEqual(rel._demora([x("erro_http", 50)], 10), "")
 
 
 class TestGraficoBarras(unittest.TestCase):
     def test_granularidade_acompanha_o_periodo(self):
-        self.assertEqual(core._granularidade(3600, 300)[0], 300)  # 1 h: 12 barras de 5 min
-        self.assertEqual(core._granularidade(24 * 3600, 300)[0], 300)  # 1 dia: 288 barras
-        self.assertEqual(core._granularidade(7 * 86400, 300)[0], 3600)  # 7 dias: 168 barras de 1 h
-        self.assertEqual(core._granularidade(30 * 86400, 300)[0], 6 * 3600)  # 30 dias: 120 barras de 6 h
-        self.assertEqual(core._granularidade(200 * 86400, 300)[0], 86400)
+        self.assertEqual(rel._granularidade(3600, 300)[0], 300)  # 1 h: 12 barras de 5 min
+        self.assertEqual(rel._granularidade(24 * 3600, 300)[0], 300)  # 1 dia: 288 barras
+        self.assertEqual(rel._granularidade(7 * 86400, 300)[0], 3600)  # 7 dias: 168 barras de 1 h
+        self.assertEqual(rel._granularidade(30 * 86400, 300)[0], 6 * 3600)  # 30 dias: 120 barras de 6 h
+        self.assertEqual(rel._granularidade(200 * 86400, 300)[0], 86400)
 
     def test_cor_do_balde(self):
-        self.assertEqual(core._cor_do_balde(12, 3, 0, 0), "falha")  # 25% falhou
-        self.assertEqual(core._cor_do_balde(12, 2, 0, 0), "lento")  # alguma falha, menos de 25%
-        self.assertEqual(core._cor_do_balde(12, 0, 3, 0), "lento")  # 25% lentas
-        self.assertEqual(core._cor_do_balde(12, 0, 2, 0), "ok")
-        self.assertEqual(core._cor_do_balde(2, 0, 0, 2), "429")
-        self.assertEqual(core._cor_do_balde(1, 1, 0, 0), "falha")  # 1 medição = a própria cor
+        self.assertEqual(rel._cor_do_balde(12, 3, 0, 0), "falha")  # 25% falhou
+        self.assertEqual(rel._cor_do_balde(12, 2, 0, 0), "lento")  # alguma falha, menos de 25%
+        self.assertEqual(rel._cor_do_balde(12, 0, 3, 0), "lento")  # 25% lentas
+        self.assertEqual(rel._cor_do_balde(12, 0, 2, 0), "ok")
+        self.assertEqual(rel._cor_do_balde(2, 0, 0, 2), "429")
+        self.assertEqual(rel._cor_do_balde(1, 1, 0, 0), "falha")  # 1 medição = a própria cor
 
     def test_baldes_falha_vira_teto_e_429_fica_fora_da_latencia(self):
         med = [(0, "ok", 500), (10, "timeout", 30000), (400, "ok", 200), (410, "bloqueio_429", 50)]
-        b = core._baldes(med, 0, 300, 30)
+        b = rel._baldes(med, 0, 300, 30)
         self.assertEqual(sorted(b), [0, 1])  # 2 baldes de 5 min; só existe balde com dado
         self.assertEqual((b[0][0], b[0][1], b[0][2:]), ("falha", 30, (2, 1, 0)))  # p95 = teto por causa do timeout
         self.assertEqual((b[1][0], b[1][1]), ("ok", 0.2))  # o 429 não entra na latência
 
     def test_rotulo_do_periodo(self):
-        self.assertEqual([core._rotulo(x) for x in (100, 99, 98.9, 95, 94.9, None)],
+        self.assertEqual([rel._rotulo(x) for x in (100, 99, 98.9, 95, 94.9, None)],
                          ["ok", "ok", "lento", "lento", "falha", "vazio"])
 
 
@@ -503,7 +504,7 @@ class TestRelatorio(Base):
             self.relogio.avancar(minutes=5)
         self.relogio.avancar(hours=3)  # lacuna
         s.rodada()
-        out = core.gerar_relatorio(self.pasta, dias=3, agora=self.relogio.t + timedelta(minutes=1))
+        out = rel.gerar_relatorio(self.pasta, dias=3, agora=self.relogio.t + timedelta(minutes=1))
 
         def ler(nome):
             with open(out / nome, encoding="utf-8-sig", newline="") as f:
@@ -524,7 +525,7 @@ class TestRelatorio(Base):
         self.assertGreater(float(lacunas[0][2].replace(",", ".")), 170)
         self.assertEqual(len(ler("4_cobertura_diaria.csv")) - 1, 1)  # só o dia do 1º registro: antes dele a sonda não existia
         agora = self.relogio.t + timedelta(minutes=1)
-        self.assertEqual(core.gerar_relatorio(self.pasta, dias=3, agora=agora + timedelta(hours=2)), out)  # mesmo dia
+        self.assertEqual(rel.gerar_relatorio(self.pasta, dias=3, agora=agora + timedelta(hours=2)), out)  # mesmo dia
         self.assertEqual(len(list((self.pasta / "relatorios").iterdir())), 1)
         html_ = (out / "resumo_para_chamado.html").read_text(encoding="utf-8")
         self.assertIn("PNCP — 6 serviços monitorados", html_)  # o relatório lê os alvos do config da pasta

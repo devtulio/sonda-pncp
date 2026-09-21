@@ -2,6 +2,14 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
+## [Não lançado]
+
+### Changed
+- O relatório (CSVs, resumo HTML e gráfico, ~460 linhas) saiu de `sonda_core.py` para
+  `sonda_relatorio.py`, sem mudar comportamento: o relatório gerado dos logs reais
+  sai idêntico byte a byte antes e depois. `sonda_core.py` fica com configuração,
+  medição, log e a máquina de estados. Módulo interno, fora do contrato.
+
 ## [1.4.1] — 2026-09-21
 
 Correções da auditoria de código de 21/09/2026: a promessa "a sonda não morre

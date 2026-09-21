@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      # sonda_core.py e os testes só usam a stdlib (pystray/Pillow/winotify são da bandeja)
+      # sonda_core.py, sonda_relatorio.py e os testes só usam a stdlib (pystray/Pillow/winotify são da bandeja)
       - run: python -m unittest discover -s tests -v
 
   qualidade:
@@ -40,4 +40,4 @@ jobs:
       - run: ruff check .
 
       # o bandit -r não olha .pyw: os arquivos vão por nome
-      - run: bandit -q -c pyproject.toml sonda_core.py sonda_pncp.pyw
+      - run: bandit -q -c pyproject.toml sonda_core.py sonda_relatorio.py sonda_pncp.pyw
