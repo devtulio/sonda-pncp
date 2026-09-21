@@ -37,6 +37,7 @@ CAMPOS DO LOG
 
 DOCUMENTACAO
   README.md (visao geral), MANUAL.md (referencia completa), CHANGELOG.md, RELEASING.md.
+  docs/arquitetura.html e docs/rodada.html: diagramas interativos (abrir no navegador).
 
 LIMITES
   Um unico ponto de observacao e so mede com o PC ligado (lacunas ficam registradas).

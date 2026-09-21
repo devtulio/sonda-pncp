@@ -32,8 +32,8 @@ notificações, de dica do ícone e de menu, layout visual e estilo do
 HTML/SVG, **valores** default (intervalos, timeouts, limiares
 `limiar_lento_ms`, `LIMIARES_DEMORA_S` — podem ser recalibrados em
 patch), os alvos e URLs padrão, a porta da instância única, o conteúdo
-dos campos de texto livre (`detalhe`, `curl_erro`, `corpo_trecho`) e a
-ordem das linhas.
+dos campos de texto livre (`detalhe`, `curl_erro`, `corpo_trecho`), a
+ordem das linhas e os diagramas de `docs/` (ilustram o desenho; ver MANUAL).
 
 ## 2. Como o número muda (SemVer estrito)
 
@@ -86,7 +86,10 @@ corrigido mais rápido (Khomh et al.).
    Removed / Fixed / Security), escrita no mesmo commit.
 5. Versão bumpada em **um** lugar: `sonda_core.VERSAO`.
 6. Push, CI verde, aí a tag. Nunca tag antes do CI.
-7. Reiniciar a sonda em uso para ela passar a rodar a versão nova: o
+7. Se a mudança altera componentes, nomes de arquivos ou o fluxo da rodada,
+   regenerar os diagramas de `docs/` (MANUAL, "Diagramas") e apagar os
+   `*.visual-check.*` que o Archify deixa ao lado.
+8. Reiniciar a sonda em uso para ela passar a rodar a versão nova: o
    processo em execução não relê o código nem o `config.json`.
 
 ## 6. Depreciação

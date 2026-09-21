@@ -10,6 +10,7 @@ Regras completas em [RELEASING.md](RELEASING.md).
 ## Índice
 
 - [Como funciona](#como-funciona)
+- [Diagramas](#diagramas)
 - [Alvos](#alvos)
 - [Órgão e compra de teste](#órgão-e-compra-de-teste)
 - [Classificação de cada medição](#classificação-de-cada-medição)
@@ -48,6 +49,38 @@ também falha, é uma **falha confirmada**. As duas tentativas ficam no log
 
 Se os **2 controles falham**, a rodada é `sem_rede`: os alvos do PNCP
 nem são medidos (não contam contra o PNCP) e a próxima rodada vem em 60 s.
+
+## Diagramas
+
+Dois diagramas ilustram este manual, em `docs/`:
+
+| Arquivo | O que mostra |
+|---|---|
+| `docs/arquitetura.html` | Componentes (bandeja, núcleo, `curl.exe`, log, relatório, `config.json`, notificação) e o que conversa com o quê, dentro e fora do PC. |
+| `docs/rodada.html` | O fluxo de **uma rodada**: controles, decisão de rede local, medição dos alvos, classificação, repetição após 10 s, estado da rodada, modo incidente e gravação no log. |
+
+São páginas autocontidas e interativas (tema claro/escuro, zoom, busca, modo
+apresentação, exportação). Em `docs/img/` estão as capturas usadas no README. A
+interface do visualizador (botões e legenda padrão) fica em inglês; o conteúdo dos
+diagramas, em português.
+
+**Regenerar.** As fontes são `docs/diagramas/arquitetura.json` e
+`docs/diagramas/rodada.json`. Com um checkout do
+[Archify](https://github.com/tt-a1i/archify) (MIT; Node.js), a partir da pasta dele:
+
+```bash
+node bin/archify.mjs deliver architecture CAMINHO/docs/diagramas/arquitetura.json CAMINHO/docs/arquitetura.html --quality showcase
+node bin/archify.mjs deliver workflow CAMINHO/docs/diagramas/rodada.json CAMINHO/docs/rodada.html --quality showcase
+node bin/archify.mjs visual-check CAMINHO/docs/arquitetura.html
+```
+
+O `visual-check` grava arquivos de evidência ao lado do HTML (`*.visual-check.*`, com
+caminhos da sua máquina): apague-os antes de commitar. As capturas de `docs/img/`
+saem de abrir o HTML num navegador a 1600×1000.
+
+**Manter em dia.** Mudou um componente, um nome de arquivo ou a ordem do fluxo da
+rodada? Atualize o JSON e regenere. Os diagramas ilustram: não são contrato
+([RELEASING](RELEASING.md)), mas um desenho desatualizado engana quem lê.
 
 ## Alvos
 

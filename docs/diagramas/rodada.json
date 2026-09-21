@@ -1,0 +1,60 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Sonda PNCP: uma rodada de medição",
+    "output": "rodada.html",
+    "quality_profile": "showcase",
+    "legend": {
+      "mode": "auto",
+      "entries": {
+        "backend": { "label": "Lógica da sonda" },
+        "security": { "label": "Decisão ou alerta" },
+        "messagebus": { "label": "Gatilho ou retentativa" },
+        "database": { "label": "Registro" },
+        "external": { "label": "Medição externa" }
+      }
+    }
+  },
+  "lanes": [
+    { "id": "laco", "label": "Laço da sonda" },
+    { "id": "medicao", "label": "Medição" },
+    { "id": "estado", "label": "Decisão e estado" },
+    { "id": "excecao", "label": "Exceções", "variant": "exception" }
+  ],
+  "phases": [
+    { "id": "rede", "label": "Confere a rede", "fromCol": 0, "toCol": 2 },
+    { "id": "mede", "label": "Mede o PNCP", "fromCol": 3, "toCol": 4, "variant": "emphasis" },
+    { "id": "decide", "label": "Decide e registra", "fromCol": 5, "toCol": 5, "variant": "dashed" }
+  ],
+  "mainPath": ["inicio", "controles", "rede", "alvos", "classifica", "estado", "grava"],
+  "nodes": [
+    { "id": "inicio", "lane": "laco", "col": 0, "type": "messagebus", "label": "Início da rodada", "sublabel": "a cada 5 min", "width": 192 },
+    { "id": "grava", "lane": "laco", "col": 5, "type": "database", "label": "Grava no log", "sublabel": "medições + resumo", "width": 192 },
+    { "id": "controles", "lane": "medicao", "col": 1, "type": "external", "label": "2 controles", "sublabel": "Google e Cloudflare", "width": 192 },
+    { "id": "alvos", "lane": "medicao", "col": 3, "type": "external", "label": "6 alvos do PNCP", "sublabel": "curl.exe, um por vez", "width": 192 },
+    { "id": "classifica", "lane": "medicao", "col": 4, "type": "backend", "label": "Classifica", "sublabel": "ok, lenta, 429, falha", "width": 192 },
+    { "id": "rede", "lane": "estado", "col": 2, "type": "security", "label": "Rede local ok?", "sublabel": "1 controle basta", "width": 192 },
+    { "id": "estado", "lane": "estado", "col": 5, "type": "backend", "label": "Estado da rodada", "sublabel": "ok, degradado, falha", "width": 192 },
+    { "id": "semrede", "lane": "excecao", "col": 2, "type": "messagebus", "label": "Sem rede local", "sublabel": "não conta; refaz em 60 s", "width": 192 },
+    { "id": "repete", "lane": "excecao", "col": 4, "type": "messagebus", "label": "Repete após 10 s", "sublabel": "blip ou falha confirmada", "width": 192 },
+    { "id": "incidente", "lane": "excecao", "col": 5, "type": "security", "label": "Modo incidente", "sublabel": "60 s; aviso após 2 rodadas", "width": 192 }
+  ],
+  "edges": [
+    { "id": "e-inicio", "from": "inicio", "to": "controles", "variant": "emphasis" },
+    { "id": "e-controles", "from": "controles", "to": "rede" },
+    { "id": "e-sim", "from": "rede", "to": "alvos", "label": "sim", "variant": "emphasis" },
+    { "id": "e-nao", "from": "rede", "to": "semrede", "label": "os 2 caíram", "variant": "security", "role": "error" },
+    { "id": "e-alvos", "from": "alvos", "to": "classifica" },
+    { "id": "e-classifica", "from": "classifica", "to": "estado", "label": "sem falha", "variant": "emphasis" },
+    { "id": "e-falha", "from": "classifica", "to": "repete", "label": "falha", "variant": "security", "role": "error" },
+    { "id": "e-repete", "from": "repete", "to": "estado", "label": "2ª tentativa", "variant": "dashed", "role": "return" },
+    { "id": "e-estado", "from": "estado", "to": "grava", "variant": "emphasis" },
+    { "id": "e-incidente", "from": "estado", "to": "incidente", "label": "falha", "variant": "security", "role": "error" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Antes de acusar", "items": ["Os 2 controles medem a sua internet primeiro", "Se os 2 caem, os alvos do PNCP nem são medidos"] },
+    { "dot": "amber", "title": "Falha ou limitação", "items": ["Falha repete 1 vez após 10 s: blip se passar", "HTTP 429 é limitação do WAF: não repete nem conta como queda"] },
+    { "dot": "emerald", "title": "Estado", "items": ["Ícone vermelho após 2 rodadas seguidas em falha", "Modo incidente sai após 3 rodadas sem falha"] }
+  ]
+}

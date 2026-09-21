@@ -23,6 +23,20 @@ O que mede a cada rodada: 2 controles de internet (Google, Cloudflare) e
 contratos, atas, PCA, itens da compra). Cada medição usa `curl.exe` e
 guarda DNS, TCP, TLS, tempo até o primeiro byte e tempo total.
 
+## Diagramas
+
+A arquitetura (componentes e como conversam) e o fluxo de uma rodada de medição:
+
+![Arquitetura da Sonda PNCP](docs/img/arquitetura.png)
+
+![Fluxo de uma rodada de medição](docs/img/rodada.png)
+
+As imagens são capturas. Os arquivos [`docs/arquitetura.html`](docs/arquitetura.html) e
+[`docs/rodada.html`](docs/rodada.html) são interativos (tema claro/escuro, zoom, busca,
+modo apresentação): baixe e abra no navegador, porque o GitHub mostra HTML como código.
+Foram feitos com o [Archify](https://github.com/tt-a1i/archify) (MIT) a partir das
+especificações em [`docs/diagramas/`](docs/diagramas/); como regenerar: [MANUAL](MANUAL.md#diagramas).
+
 ## Uso
 
 ```bat
