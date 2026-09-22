@@ -24,6 +24,13 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
   sai idêntico byte a byte antes e depois. `sonda_core.py` fica com configuração,
   medição, log e a máquina de estados. Módulo interno, fora do contrato.
 
+### Fixed (testes; sem efeito na sonda)
+- `test_cobertura_comeca_no_primeiro_registro` (e os outros de relatório que usam `gravar_falhas`)
+  dependia da hora do dia: gravava registros dos 30 minutos anteriores a `agora`, que cruzavam a
+  meia-noite se o teste rodasse entre 00:00 e 00:30 (o CI da 1.5.0-dev falhou às 00:15 UTC com
+  "2 != 1"; passou na 1.4.1 por acaso, às 23:2x). Agora usam meio-dia local de uma data fixa e passam
+  `agora=` ao gerador.
+
 ## [1.4.1] — 2026-09-21
 
 Correções da auditoria de código de 21/09/2026: a promessa "a sonda não morre

