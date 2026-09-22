@@ -639,7 +639,7 @@ class Sonda:
         if self.ultimo_wall is None:
             return
         gap = (agora - self.ultimo_wall).total_seconds()
-        esperado = self.proximo_esperado_s
+        esperado = max(self.proximo_esperado_s, self.cfg["intervalo_incidente_s"])
         if gap > esperado * self.cfg["limite_lacuna_x_intervalo"] + self.cfg["timeout_total_s"]:
             motivo = "pausa_manual" if self.houve_pausa else "suspensao_ou_indisponibilidade"
             self.evento("retomada_apos_lacuna", lacuna_s=round(gap - esperado),
@@ -698,19 +698,23 @@ class Sonda:
             estado = "degradado"
         else:
             estado = "ok"
-        res = self._atualizar(estado, falhas)
+        intervalo = self._atualizar(estado, falhas)
+        duracao_s = time.monotonic() - t0
+        # o intervalo vale de INÍCIO a INÍCIO: a rodada já gastou parte dele. Rodada mais longa que o intervalo
+        # (PNCP em timeout: ~5 min) emenda na seguinte, sem pausa; `espera_entre_alvos_s` segue espaçando as requisições
+        espera = max(0.0, intervalo - duracao_s)
         fim = self.agora()
         rec = {"tipo": "rodada", **self._ts(agora), "rodada": rid, "estado": estado, "cor": self.cor,
                "rede_local_ok": rede_ok, "alvos": finais, "falhas": falhas, "blips": blips,
                "lentos": lentos, "bloqueios_429": bloqueios,
                "registros_ausentes": ausentes,
                "modo": "incidente" if self.incidente else "normal", "streak_falha": self.streak,
-               "duracao_ms": round((time.monotonic() - t0) * 1000), "proxima_em_s": res}
+               "duracao_ms": round(duracao_s * 1000), "proxima_em_s": round(espera, 1)}
         self.log.escrever(rec)
         self._r24.append((agora.astimezone(UTC), estado))
         self.ultima = rec
         self.ultimo_wall = fim
-        self.proximo_esperado_s = res
+        self.proximo_esperado_s = espera
         dia = agora.astimezone().date()
         if self._dia_compactado != dia:
             self._dia_compactado = dia
@@ -758,6 +762,9 @@ class Sonda:
             self.registrar_erro(e)
             raise
 
+    def _intervalo_atual(self):
+        return self.cfg["intervalo_incidente_s"] if self.incidente else self.cfg["intervalo_normal_s"]
+
     @staticmethod
     def _espera_segura(x):
         try:
@@ -779,8 +786,8 @@ class Sonda:
                 espera = rec["proxima_em_s"]
             except Exception as e:  # noqa: BLE001 - a sonda nunca pode morrer calada
                 self.registrar_erro(e)
-            if espera is None:  # a rodada falhou: mantém a última cadência conhecida (não volta ao modo normal)
-                espera = self.proximo_esperado_s
+            if espera is None:  # a rodada falhou: a espera de uma rodada que não terminou não existe; usa o intervalo do modo
+                espera = self._intervalo_atual()
             self.disparar.wait(self._espera_segura(espera))
             self.disparar.clear()
 

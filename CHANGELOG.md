@@ -5,6 +5,20 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 ## [Não lançado]
 
 ### Changed
+- **Cadência de início a início.** A espera até a próxima rodada era contada do
+  **fim** da anterior, então o período real era `duração + intervalo`: mediana
+  medida de 5,6 min em modo normal e 3,6 min em incidente (documentado: 5 min e
+  60 s), com 59% das rodadas de 20-21/09 em incidente. Agora
+  `espera = max(0, intervalo - duração)` e `proxima_em_s` grava essa espera. Rodada
+  mais longa que o intervalo (PNCP em timeout, 5 a 8 min) emenda na seguinte sem
+  pausa; `espera_entre_alvos_s` continua espaçando as requisições. Se uma rodada
+  falhar por erro interno, a espera é o intervalo configurado (e não a última
+  espera, que pode ser ~0: seria um laço quente). A detecção de lacuna e o vigia
+  usam a espera nova. Smoke real (`curl.exe` e relógio reais, servidor local): com
+  intervalo de 15 s, o período entre inícios era 17,9 s no núcleo antigo e 15,0 s no
+  novo; com rodadas de 8,3 s e intervalo de 4 s, as rodadas emendam (período 8,4 s,
+  `proxima_em_s = 0`). **Relatórios de antes e depois desta versão têm cadências
+  diferentes.**
 - O relatório (CSVs, resumo HTML e gráfico, ~460 linhas) saiu de `sonda_core.py` para
   `sonda_relatorio.py`, sem mudar comportamento: o relatório gerado dos logs reais
   sai idêntico byte a byte antes e depois. `sonda_core.py` fica com configuração,

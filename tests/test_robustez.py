@@ -14,6 +14,7 @@ import tempfile
 import threading
 import time
 import unittest
+from types import SimpleNamespace
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -447,6 +448,56 @@ class TestDesvioEIp(Base):
         s.ips["c1"] = "9.9.9.9"  # o controle "mudou" de IP (balanceamento)
         s.rodada()
         self.assertEqual([e for e in self.registros("evento") if e["evento"] == "mudanca_ip"], [])
+
+
+class TestCadenciaInicioAInicio(Base):
+    """O intervalo vale de INÍCIO a INÍCIO: a rodada já gastou parte dele (antes a espera contava do fim)."""
+
+    def test_a_espera_desconta_a_duracao_da_rodada(self):
+        s = self.sonda()
+        s.dormir = self.avancando()
+        rec = s.rodada()  # 2 controles + 2 alvos, 1,5 s de pausa após cada um = 6 s
+        self.assertEqual(rec["duracao_ms"], 6000)
+        self.assertEqual((rec["proxima_em_s"], s.proximo_esperado_s), (294.0, 294.0))
+
+    def test_incidente_de_60_s_tambem_e_de_inicio_a_inicio(self):
+        s = self.sonda(portal=["503", "503"])
+        s.dormir = self.avancando()
+        rec = s.rodada()  # 3 s dos controles + 10 s de retry + 2 x 1,5 s = 16 s
+        self.assertEqual((rec["estado"], rec["modo"], rec["duracao_ms"]), ("falha", "incidente", 16000))
+        self.assertEqual(rec["proxima_em_s"], 44.0)
+
+    def test_rodada_mais_longa_que_o_intervalo_emenda_na_seguinte_sem_pausa(self):
+        s = self.sonda(portal=["503", "503"])
+        s.cfg["retry_apos_falha_s"] = 400  # PNCP em timeout: a rodada dura mais que os 60 s do incidente
+        s.dormir = self.avancando()
+        rec = s.rodada()
+        self.assertGreater(rec["duracao_ms"], 60_000)
+        self.assertEqual(rec["proxima_em_s"], 0.0)  # nunca negativa
+
+    def test_erro_na_rodada_espera_o_intervalo_configurado_e_nao_a_ultima_espera(self):
+        s = self.sonda()
+        s.proximo_esperado_s = 0.0  # a rodada anterior foi longa: a espera dela foi ~0
+        esperas = []
+
+        def esperar_(t):
+            esperas.append(t)
+            s.parar.set()  # uma iteração e para
+        s.disparar = SimpleNamespace(wait=esperar_, clear=lambda: None, set=lambda: None)
+        s.rodada = lambda: (_ for _ in ()).throw(RuntimeError("falha na rodada"))
+        s.laco()
+        self.assertEqual(esperas, [300.0])  # sem isto, uma rodada que falha sempre viraria um laço quente
+
+    def test_lacuna_considera_a_espera_nova(self):
+        s = self.sonda()
+        s.rodada()
+        s.proximo_esperado_s = 0.0  # rodada longa: a seguinte começa logo
+        self.relogio.avancar(seconds=20)
+        s.rodada()
+        self.assertEqual([e for e in self.registros("evento") if e["evento"] == "retomada_apos_lacuna"], [])
+        self.relogio.avancar(hours=2)
+        s.rodada()
+        self.assertEqual(len([e for e in self.registros("evento") if e["evento"] == "retomada_apos_lacuna"]), 1)
 
 
 # ───────────────────────── bandeja (sonda_pncp.pyw) ─────────────────────────

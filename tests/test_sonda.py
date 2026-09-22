@@ -8,6 +8,8 @@ import tempfile
 import threading
 import time
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 from datetime import datetime, timedelta, UTC
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -205,6 +207,15 @@ class Base(unittest.TestCase):
         self.pasta = Path(self._tmp.name)
         self.relogio = Relogio(datetime(2026, 9, 18, 12, 0, tzinfo=UTC))
         self.avisos = []
+        # relógio monotônico falso: a duração de uma rodada de teste é 0, a menos que o teste peça `self.avancando()`
+        self.mono = [1000.0]
+        relogio_falso = mock.patch.object(core, "time", SimpleNamespace(monotonic=lambda: self.mono[0]))
+        relogio_falso.start()
+        self.addCleanup(relogio_falso.stop)
+
+    def avancando(self):
+        """dormir_fn que faz o tempo (monotônico falso) passar: a rodada dura a soma das suas esperas."""
+        return lambda s: self.mono.__setitem__(0, self.mono[0] + s)
 
     def tearDown(self):
         self._tmp.cleanup()

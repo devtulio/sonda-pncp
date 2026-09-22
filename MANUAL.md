@@ -30,8 +30,12 @@ Regras completas em [RELEASING.md](RELEASING.md).
 ## Como funciona
 
 Um laço em segundo plano executa uma **rodada** a cada 5 minutos (60 s
-durante incidente). Cada rodada mede, em sequência e com 1,5 s entre um
-alvo e outro, os 2 controles de internet e depois os 6 alvos do PNCP.
+durante incidente), contados do **início** de uma rodada ao início da
+seguinte: a rodada já gastou parte do intervalo, e a espera é o que sobra
+(`proxima_em_s` no log). Uma rodada mais longa que o intervalo (PNCP em timeout:
+de 5 a 8 min) emenda na seguinte, sem pausa. Cada rodada mede, em sequência e
+com 1,5 s entre um alvo e outro, os 2 controles de internet e depois os 6 alvos
+do PNCP.
 
 Cada medição é um `curl.exe` (do Windows) com `-w "%{json}"`, que devolve
 de graça o IP, os tempos e o código de erro de rede. Os tempos
@@ -268,8 +272,8 @@ um `config.json` que já existe: edite o arquivo.
 
 | Chave | Padrão | O que é |
 |---|---|---|
-| `intervalo_normal_s` | `300` | Intervalo entre rodadas. |
-| `intervalo_incidente_s` | `60` | Intervalo em modo incidente e em `sem_rede`. |
+| `intervalo_normal_s` | `300` | Intervalo entre o **início** de uma rodada e o da seguinte (a espera desconta a duração da rodada). |
+| `intervalo_incidente_s` | `60` | Intervalo (de início a início) em modo incidente e em `sem_rede`. |
 | `espera_entre_alvos_s` | `1.5` | Pausa entre um alvo e outro dentro da rodada. |
 | `timeout_conexao_s` | `10` | Timeout de conexão do curl. |
 | `timeout_total_s` | `30` | Timeout total do curl (acima disto é `timeout`). |
@@ -344,7 +348,8 @@ Em **sucesso**: `corpo_sha256` (16 primeiros caracteres do hash).
 `rodada`, `estado`, `cor`, `rede_local_ok`, `alvos` (resultado final por
 alvo, com `blip` quando a 2ª tentativa passou), `falhas`, `blips`,
 `lentos`, `bloqueios_429`, `registros_ausentes`, `modo` (`normal` ou
-`incidente`), `streak_falha`, `duracao_ms`, `proxima_em_s`.
+`incidente`), `streak_falha`, `duracao_ms`, `proxima_em_s` (espera até a próxima
+rodada, já descontada a duração desta; `0` se ela passou do intervalo).
 
 ### `tipo: evento`
 
@@ -424,7 +429,7 @@ executaria como fórmula na máquina de quem abre o anexo.
 | `1_resumo_diario.csv` | por dia × alvo: sondas, ok, lentas, falhas, 429, disponibilidade %, p50/p95 (ms), falhas por tipo, `Demora > 10 s %`, `Demora > 20 s %` |
 | `2_janelas_de_incidente.csv` | rodadas em falha unidas quando a distância é ≤ 90 min: início, fim, duração, rodadas, alvos, falhas por tipo, mensagens do PNCP reconhecidas |
 | `3_ocorrencias.csv` | toda medição que não foi ok/lenta (inclui 429, registro ausente e 2ª tentativas), com IP, tempos, trecho do corpo e horário do erro segundo o PNCP |
-| `4_cobertura_diaria.csv` | rodadas registradas × esperadas por dia, **a partir do dia do primeiro registro** (antes disso a sonda não existia). O 1º dia conta desde a 1ª rodada. A cadência real é a duração da rodada + o intervalo, então uma sonda sem nenhuma lacuna sai com ~90–95% |
+| `4_cobertura_diaria.csv` | rodadas registradas × esperadas por dia, **a partir do dia do primeiro registro** (antes disso a sonda não existia). O 1º dia conta desde a 1ª rodada. Como o intervalo é de início a início, uma sonda sem lacuna sai com ~100%; em modo incidente há mais rodadas que o esperado e o valor é limitado a 100% (em logs anteriores à 1.5.0 o período era `duração + intervalo`, e a cobertura saía com ~90–95%) |
 | `5_lacunas.csv` | intervalos sem registro, com o motivo quando conhecido |
 
 ## Notificações
@@ -464,10 +469,13 @@ derrubar a sonda. O toast mostra só a primeira linha da mensagem.
   sem ninguém logado (atualização na madrugada) deixa a sonda parada até o
   próximo logon, e o "Desligar" encerra o processo sem gravar `sonda_encerrada`.
   As lacunas ficam registradas.
-- **Cadência:** a espera é contada do **fim** da rodada, então o período real é
-  `duração da rodada + intervalo`: mediana de ~5,6 min em modo normal e ~3,6 min
-  em modo incidente (não 5 min e 60 s). A rodada leva ~1 min com o PNCP bom e
-  até ~5 min com ele em timeout.
+- **Cadência:** o intervalo vale de início a início. Uma rodada leva ~1 min com o
+  PNCP bom e de 5 a 8 min com ele em timeout; se passar do intervalo, a seguinte
+  começa logo depois (a resolução em incidente é então a própria duração da
+  rodada, e não os 60 s). **Logs anteriores à 1.5.0** contavam a espera do fim da
+  rodada (período = duração + intervalo: mediana medida de ~5,6 min em modo
+  normal e ~3,6 min em incidente): ao comparar relatórios dos dois períodos,
+  a cadência mudou.
 - Um único ponto de observação (um IP de saída).
 - Os endpoints medidos são leituras públicas de 10 registros; não
   exercitam publicação, autenticação nem grandes volumes.
