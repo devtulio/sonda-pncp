@@ -17,6 +17,12 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
   pesa pouco, uma de 30 min pesa muito, mesmo 1 linha cada no log. Lacuna acima de 15 min não conta
   pra nenhum lado. A disponibilidade por contagem já existente não muda.
 
+### Added (CI/repo; sem efeito na API)
+- Python 3.14 na matriz de testes do CI (3.11, 3.13, 3.14).
+- `pip-audit` no job `qualidade`, contra `requirements.txt` (dependências da bandeja: pystray,
+  Pillow, winotify — `sonda_core`/`sonda_relatorio` são só stdlib).
+- Dependabot semanal (`pip` e `github-actions`).
+
 ### Changed
 - **Cadência de início a início.** A espera até a próxima rodada era contada do
   **fim** da anterior, então o período real era `duração + intervalo`: mediana

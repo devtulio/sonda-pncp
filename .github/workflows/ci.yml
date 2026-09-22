@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.13"]
+        python-version: ["3.11", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
 
@@ -41,3 +41,7 @@ jobs:
 
       # o bandit -r não olha .pyw: os arquivos vão por nome
       - run: bandit -q -c pyproject.toml sonda_core.py sonda_relatorio.py sonda_pncp.pyw
+
+      # vulnerabilidade conhecida nas dependências (pystray/Pillow/winotify); sonda_core/sonda_relatorio são só stdlib
+      - run: pip install pip-audit
+      - run: pip-audit -r requirements.txt
