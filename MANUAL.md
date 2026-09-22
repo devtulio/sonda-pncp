@@ -428,7 +428,7 @@ executaria como fórmula na máquina de quem abre o anexo.
 
 | Arquivo | Conteúdo |
 |---|---|
-| `1_resumo_diario.csv` | por dia × alvo: sondas, ok, lentas, falhas, 429, disponibilidade %, p50/p95 (ms), falhas por tipo, `Demora > 10 s %`, `Demora > 20 s %` |
+| `1_resumo_diario.csv` | por dia × alvo: sondas, ok, lentas, falhas, 429, disponibilidade %, p50/p95 (ms), falhas por tipo, `Demora > 10 s %`, `Demora > 20 s %`, `Disp. ponderada por tempo %` |
 | `2_janelas_de_incidente.csv` | rodadas em falha unidas quando a distância é ≤ 90 min: início, fim, duração, rodadas, alvos, falhas por tipo, mensagens do PNCP reconhecidas |
 | `3_ocorrencias.csv` | toda medição que não foi ok/lenta (inclui 429, registro ausente e 2ª tentativas), com IP, tempos, trecho do corpo e horário do erro segundo o PNCP |
 | `4_cobertura_diaria.csv` | rodadas registradas × esperadas por dia, **a partir do dia do primeiro registro** (antes disso a sonda não existia). O 1º dia conta desde a 1ª rodada. Como o intervalo é de início a início, uma sonda sem lacuna sai com ~100%; em modo incidente há mais rodadas que o esperado e o valor é limitado a 100% (em logs anteriores à 1.5.0 o período era `duração + intervalo`, e a cobertura saía com ~90–95%) |
@@ -456,6 +456,10 @@ derrubar a sonda. O toast mostra só a primeira linha da mensagem.
 - **Lenta ≠ falha.** Uma API que responde em 29 s conta como disponível.
   A coluna *Demora > X s %* existe para mostrar o serviço que
   "responde, mas tarde".
+- **Disp. ponderada por tempo** pesa cada medição pelo tempo até a próxima, não
+  por contagem: uma falha de 1 min entre duas ok pesa pouco, uma falha de
+  30 min pesa muito, mesmo contando 1 linha cada no log. Lacuna acima de
+  15 min (PC desligado, sonda parada) não conta pra nenhum lado.
 - **Percentis** (p50/p95/máx) usam só respostas válidas. *Demora > X s*
   usa respostas válidas **mais** os timeouts.
 - **Poucos dados não são evidência.** Um relatório com poucas rodadas só

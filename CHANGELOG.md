@@ -12,6 +12,10 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
   não do alvo. Fora de `FALHAS` e `OKS` — não conta como disponibilidade nem como falha confirmada.
   Os controles (Google, Cloudflare) passam a validar o corpo, não só o status HTTP: `google_204`
   exige corpo vazio, `cloudflare_trace` exige a linha `ip=` do `cdn-cgi/trace`.
+- Coluna `Disp. ponderada por tempo %`, no fim de `1_resumo_diario.csv` e da tabela por serviço do
+  resumo HTML. Pesa cada medição pelo tempo até a próxima (não por contagem): uma falha de 1 min
+  pesa pouco, uma de 30 min pesa muito, mesmo 1 linha cada no log. Lacuna acima de 15 min não conta
+  pra nenhum lado. A disponibilidade por contagem já existente não muda.
 
 ### Changed
 - **Cadência de início a início.** A espera até a próxima rodada era contada do

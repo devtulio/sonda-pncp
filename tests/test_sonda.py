@@ -571,6 +571,27 @@ class TestOrgaoDeTeste(Base):
             core.carregar_config(self.pasta)
 
 
+class TestDispPonderada(unittest.TestCase):
+    def _s(self, ts_local, resultado):
+        return {"ts_local": ts_local, "resultado": resultado}
+
+    def test_pesa_pelo_tempo_nao_pela_contagem(self):
+        # 1 min ok, depois 9 min falha: por contagem seria 50%; por tempo, 10%
+        s1 = [self._s("2026-09-21T10:00:00", "ok"), self._s("2026-09-21T10:01:00", "erro_http"),
+              self._s("2026-09-21T10:10:00", "ok")]
+        self.assertEqual(rel._disp_ponderada(s1), "10,00")
+
+    def test_lacuna_maior_que_15min_nao_conta(self):
+        s1 = [self._s("2026-09-21T10:00:00", "ok"), self._s("2026-09-21T10:30:00", "erro_http"),
+              self._s("2026-09-21T10:31:00", "ok")]
+        # o intervalo de 30 min (ok -> falha) é descartado; só sobra 1 min de falha
+        self.assertEqual(rel._disp_ponderada(s1), "0,00")
+
+    def test_sem_medicoes_suficientes_fica_vazio(self):
+        self.assertEqual(rel._disp_ponderada([self._s("2026-09-21T10:00:00", "ok")]), "")
+        self.assertEqual(rel._disp_ponderada([]), "")
+
+
 class TestRelatorio(Base):
     def test_disponibilidade_janelas_ocorrencias_e_lacunas(self):
         # portal, 1ª tentativa nas 5 rodadas: ok, ok, 503 (+retry 503), ok, ok → 4/5 = 80%

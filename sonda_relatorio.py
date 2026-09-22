@@ -33,6 +33,27 @@ def _demora(s1, x):
     return f"{100 * sum(s['total_ms'] > x * 1000 for s in base) / len(base):.1f}".replace(".", ",") if base else ""
 
 
+GAP_PONDERADA_S = 15 * 60  # lacuna maior que isso não conta pra nenhum lado: não dá pra saber o estado real nela
+
+
+def _disp_ponderada(s1):
+    """Disponibilidade % ponderada pelo TEMPO entre medições (não pela contagem): cada medição vale o
+    tempo até a próxima, exceto lacuna > 15 min (PC desligado etc., peso 0 — nem disponível nem falha).
+    429/registro_ausente/erro_local ficam fora, como na disponibilidade por contagem."""
+    s1 = sorted(s1, key=lambda s: s["ts_local"])
+    disp = total = 0.0
+    for s, prox in zip(s1, s1[1:], strict=False):
+        if s["resultado"] not in OKS and s["resultado"] not in FALHAS:
+            continue
+        delta = (datetime.fromisoformat(prox["ts_local"]) - datetime.fromisoformat(s["ts_local"])).total_seconds()
+        if delta > GAP_PONDERADA_S:
+            continue
+        total += delta
+        if s["resultado"] in OKS:
+            disp += delta
+    return f"{100 * disp / total:.2f}".replace(".", ",") if total else ""
+
+
 def _fmt(iso):
     return datetime.fromisoformat(iso).strftime("%d/%m/%Y %H:%M:%S") if iso else ""
 
@@ -87,11 +108,12 @@ def gerar_relatorio(pasta, dias=7, agora=None):
                        f"{100 * val / (val + fal):.2f}".replace(".", ",") if val + fal else "",
                        _pct(lat, 50), _pct(lat, 95),
                        ", ".join(f"{k}×{v}" for k, v in tipos.most_common()),
-                       *(_demora(lst, x) for x in LIMIARES_DEMORA_S)])
+                       *(_demora(lst, x) for x in LIMIARES_DEMORA_S), _disp_ponderada(lst)])
     _csv(out / "1_resumo_diario.csv", ["Data", "Alvo", "Categoria", "Sondas", "OK", "Lentas", "Falhas",
                                        "Bloqueios 429", "Disponibilidade %", "Latência p50 (ms)",
                                        "Latência p95 (ms)", "Falhas por tipo",
-                                       *(f"Demora > {x} s %" for x in LIMIARES_DEMORA_S)], linhas)
+                                       *(f"Demora > {x} s %" for x in LIMIARES_DEMORA_S),
+                                       "Disp. ponderada por tempo %"], linhas)
 
     # 2) janelas de incidente: rodadas em falha, unidas se a distância for ≤ 90 min
     jan = []
@@ -403,7 +425,8 @@ def _resumo_html(out, cfg, ini, fim, sondas, rodadas, janelas, n_lacunas, n_reje
                       f"<td>{blips}</td><td>{conf}</td><td>{c['lento']}</td><td>{c['bloqueio_429']}</td>"
                       f"<td>{_pct(lat, 50) if lat else '-'}</td><td>{_pct(lat, 95) if lat else '-'}</td>"
                       f"<td>{max(lat) if lat else '-'}</td>"
-                      + "".join(f"<td>{_demora(s1, x) or '-'}</td>" for x in LIMIARES_DEMORA_S) + "</tr>")
+                      + "".join(f"<td>{_demora(s1, x) or '-'}</td>" for x in LIMIARES_DEMORA_S)
+                      + f"<td>{_disp_ponderada(s1) or '-'}</td></tr>")
     jan = "".join(f"<tr><td>{j['ini']:%d/%m/%Y %H:%M}</td><td>{j['fim']:%H:%M}</td>"
                   f"<td>{round((j['fim'] - j['ini']).total_seconds() / 60, 1)}</td>"
                   f"<td>{esc(', '.join(sorted(j['alvos'])))}</td></tr>" for j in janelas[:MAX_JANELAS_HTML]) \
@@ -442,12 +465,13 @@ data-ph="[clique aqui e preencha a identificação antes de anexar]"></span>
 <h2>Resultado por serviço (1ª tentativa de cada medição)</h2>
 <table><tr><th>Serviço</th><th>Medições</th><th>Disp. %</th><th>Falhas</th><th>Recuperadas na 2ª tentativa</th>
 <th>Falhas confirmadas</th><th>Lentas</th><th>HTTP 429</th><th>p50 ms</th><th>p95 ms</th><th>Máx ms</th>
-{''.join(f'<th>Demora &gt; {x} s %</th>' for x in LIMIARES_DEMORA_S)}</tr>
+{''.join(f'<th>Demora &gt; {x} s %</th>' for x in LIMIARES_DEMORA_S)}<th>Disp. ponderada por tempo %</th></tr>
 {''.join(linhas)}</table>
 <p class="nota">Falha = erro HTTP, erro de rede, tempo esgotado ({cfg['timeout_total_s']} s) ou corpo inválido.
 Falha repete após {cfg['retry_apos_falha_s']} s; "confirmada" = falhou também na 2ª tentativa. Disponibilidade =
 (ok + lentas) / (ok + lentas + falhas); HTTP 429 fica fora (limitação, não queda). Latências (p50/p95/máx) só de
-respostas válidas.
+respostas válidas. Disp. ponderada por tempo pesa cada medição pelo tempo até a próxima (não por contagem);
+lacuna acima de 15 min não conta pra nenhum lado.
 "Demora &gt; X s" = parcela das medições (respostas válidas + tempos esgotados) que levaram mais de X segundos:
 mostra o serviço que "responde, mas tarde", que a disponibilidade sozinha esconde.
 Controles (Google, Cloudflare) medidos a cada rodada; se ambos caem, a rodada é descartada como "sem rede local".</p>
