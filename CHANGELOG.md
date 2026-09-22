@@ -4,6 +4,11 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
 ## [Não lançado]
 
+### Added
+- `sonda_iniciada` grava `uptime_pc_s` (segundos desde o boot do Windows, via `GetTickCount64`;
+  omitido fora do Windows). Distingue lacuna por reinício/desligamento do PC (`uptime_pc_s` menor
+  que `gap_desde_anterior_s`) de queda da própria sonda. A sonda só inicia no logon, não no boot.
+
 ### Changed
 - **Cadência de início a início.** A espera até a próxima rodada era contada do
   **fim** da anterior, então o período real era `duração + intervalo`: mediana

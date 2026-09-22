@@ -423,6 +423,17 @@ def compactar_antigos(pasta, dias):
 
 # ───────────────────────── a sonda ─────────────────────────
 
+def uptime_pc_s():
+    """Segundos desde o boot do Windows (GetTickCount64); None fora do Windows ou se a chamada falhar."""
+    try:
+        import ctypes
+        f = ctypes.windll.kernel32.GetTickCount64  # type: ignore[attr-defined]
+        f.restype = ctypes.c_ulonglong  # o padrão (int de 32 bits) truncaria/negativaria após ~24 dias ligado
+        return int(f() // 1000)
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
 class Sonda:
     def __init__(self, pasta, cfg=None, medir_fn=None, agora_fn=None, dormir_fn=None, notificar_fn=None):
         self.pasta = Path(pasta)
@@ -570,6 +581,9 @@ class Sonda:
             except (KeyError, ValueError):
                 pass
             campos["encerramento_anterior_limpo"] = ult.get("evento") == "sonda_encerrada"
+        up = uptime_pc_s()
+        if up is not None:  # PC ligado há menos que o gap = a sonda parou porque o PC reiniciou/desligou
+            campos["uptime_pc_s"] = up
         self.evento("sonda_iniciada", **campos)
         self._pulso()
         for etapa in (self._carregar_24h, lambda: compactar_antigos(self.pasta, self.cfg["retencao_compactar_dias"])):

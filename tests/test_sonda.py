@@ -369,6 +369,24 @@ class TestLacunasEInicio(Base):
         ini = [e for e in self.registros("evento") if e["evento"] == "sonda_iniciada"][-1]
         self.assertTrue(ini["encerramento_anterior_limpo"])
 
+    def test_inicio_grava_uptime_do_pc(self):
+        with mock.patch.object(core, "uptime_pc_s", return_value=1234):
+            self.sonda().iniciar()
+        ini = [e for e in self.registros("evento") if e["evento"] == "sonda_iniciada"][-1]
+        self.assertEqual(ini["uptime_pc_s"], 1234)
+
+    def test_inicio_sem_uptime_omite_o_campo(self):
+        with mock.patch.object(core, "uptime_pc_s", return_value=None):
+            self.sonda().iniciar()
+        ini = [e for e in self.registros("evento") if e["evento"] == "sonda_iniciada"][-1]
+        self.assertNotIn("uptime_pc_s", ini)
+
+    @unittest.skipUnless(sys.platform == "win32", "GetTickCount64 é do Windows")
+    def test_uptime_real_do_windows_e_plausivel(self):
+        up = core.uptime_pc_s()
+        self.assertIsInstance(up, int)
+        self.assertGreater(up, 0)
+
     def test_encerrar_no_meio_da_rodada_nao_grava_resumo_e_o_proximo_inicio_ve_encerramento_limpo(self):
         s = self.sonda()
         s.dormir = lambda seg: s.encerrar("menu")  # o usuário encerra logo após o 1º controle

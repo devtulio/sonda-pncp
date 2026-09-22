@@ -355,7 +355,7 @@ rodada, já descontada a duração desta; `0` se ela passou do intervalo).
 
 | `evento` | Quando | Campos extras |
 |---|---|---|
-| `sonda_iniciada` | ao subir | `versao`, `host`, `python`, `intervalo_normal_s`, `ultimo_registro_anterior`, `gap_desde_anterior_s`, `encerramento_anterior_limpo` |
+| `sonda_iniciada` | ao subir | `versao`, `host`, `python`, `intervalo_normal_s`, `ultimo_registro_anterior`, `gap_desde_anterior_s`, `encerramento_anterior_limpo`, `uptime_pc_s` (segundos desde o boot do Windows; se for menor que o gap, o PC reiniciou/desligou e a sonda não caiu sozinha) |
 | `sonda_encerrada` | ao encerrar | `motivo` (`menu`, `comando_encerrar`, `saida_inesperada`), `rodadas` |
 | `mudanca_estado` | a cor do ícone mudou | `de`, `para`, `estado_rodada`, `falhas` |
 | `mudanca_ip` | um alvo **do PNCP** passou a responder de outro IP (os controles trocam de IP a cada consulta por balanceamento: seriam só ruído) | `alvo`, `de`, `para` |
