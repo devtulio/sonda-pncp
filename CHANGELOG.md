@@ -2,7 +2,7 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
-## [Não lançado]
+## [1.5.0] — 2026-09-21
 
 ### Added
 - `sonda_iniciada` grava `uptime_pc_s` (segundos desde o boot do Windows, via `GetTickCount64`;
@@ -22,6 +22,8 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 - `pip-audit` no job `qualidade`, contra `requirements.txt` (dependências da bandeja: pystray,
   Pillow, winotify — `sonda_core`/`sonda_relatorio` são só stdlib).
 - Dependabot semanal (`pip` e `github-actions`).
+- `master` protegida: os 4 checks do CI obrigatórios antes de mergear, force-push e deleção
+  bloqueados (vale pra admin também).
 
 ### Changed
 - **Cadência de início a início.** A espera até a próxima rodada era contada do
