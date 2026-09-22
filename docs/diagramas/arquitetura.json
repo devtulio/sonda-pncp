@@ -7,34 +7,252 @@
     "quality_profile": "showcase"
   },
   "components": [
-    { "id": "bandeja", "type": "frontend", "label": "Bandeja do Windows", "sublabel": "sonda_pncp.pyw · ícone, menu e vigia", "pos": [40, 250], "size": [170, 64] },
-    { "id": "config", "type": "database", "label": "config.json", "sublabel": "alvos, limiares, órgão de teste", "pos": [40, 410], "size": [170, 64] },
-    { "id": "nucleo", "type": "backend", "label": "Núcleo da sonda", "sublabel": "sonda_core.py · laço de rodadas", "pos": [330, 250], "size": [170, 64], "tag": "5 min / 60 s" },
-    { "id": "toast", "type": "frontend", "label": "Notificação do Windows", "sublabel": "winotify", "pos": [330, 90], "size": [170, 64] },
-    { "id": "curl", "type": "backend", "label": "curl.exe", "sublabel": "DNS, TCP, TLS, TTFB, total", "pos": [620, 250], "size": [170, 64] },
-    { "id": "logs", "type": "database", "label": "Log diário", "sublabel": "sonda-AAAA-MM-DD.jsonl", "pos": [330, 410], "size": [170, 64] },
-    { "id": "relatorio", "type": "backend", "label": "Relatório do dia", "sublabel": "resumo HTML + 5 CSVs", "pos": [620, 410], "size": [170, 64] },
-    { "id": "pncp", "type": "external", "label": "PNCP", "sublabel": "portal + 5 APIs de consulta", "pos": [930, 170], "size": [170, 64] },
-    { "id": "controles", "type": "external", "label": "Controles", "sublabel": "Google e Cloudflare", "pos": [930, 330], "size": [170, 64] },
-    { "id": "chamado", "type": "external", "label": "Chamado ao PNCP", "sublabel": "anexo do solicitante", "pos": [930, 490], "size": [170, 64] }
+    {
+      "id": "bandeja",
+      "type": "frontend",
+      "label": "Bandeja do Windows",
+      "sublabel": "sonda_pncp.pyw · ícone, menu e vigia",
+      "pos": [
+        40,
+        250
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "config",
+      "type": "database",
+      "label": "config.json",
+      "sublabel": "alvos, limiares, órgão de teste",
+      "pos": [
+        40,
+        410
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "nucleo",
+      "type": "backend",
+      "label": "Núcleo da sonda",
+      "sublabel": "sonda_core.py · laço de rodadas",
+      "pos": [
+        330,
+        250
+      ],
+      "size": [
+        170,
+        64
+      ],
+      "tag": "5 min / 60 s"
+    },
+    {
+      "id": "toast",
+      "type": "frontend",
+      "label": "Notificação do Windows",
+      "sublabel": "winotify",
+      "pos": [
+        330,
+        90
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "curl",
+      "type": "backend",
+      "label": "curl.exe",
+      "sublabel": "DNS, TCP, TLS, TTFB, total",
+      "pos": [
+        620,
+        250
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "logs",
+      "type": "database",
+      "label": "Log diário",
+      "sublabel": "sonda-AAAA-MM-DD.jsonl",
+      "pos": [
+        330,
+        410
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "relatorio",
+      "type": "backend",
+      "label": "Relatório do dia",
+      "sublabel": "sonda_relatorio.py · resumo + CSVs",
+      "pos": [
+        620,
+        410
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "pncp",
+      "type": "external",
+      "label": "PNCP",
+      "sublabel": "portal + 5 APIs de consulta",
+      "pos": [
+        930,
+        170
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "controles",
+      "type": "external",
+      "label": "Controles",
+      "sublabel": "Google e Cloudflare",
+      "pos": [
+        930,
+        330
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "chamado",
+      "type": "external",
+      "label": "Chamado ao PNCP",
+      "sublabel": "anexo do solicitante",
+      "pos": [
+        930,
+        490
+      ],
+      "size": [
+        170,
+        64
+      ]
+    }
   ],
   "boundaries": [
-    { "kind": "region", "label": "PC do usuário (Windows)", "wraps": ["bandeja", "config", "nucleo", "toast", "curl", "logs", "relatorio"] }
+    {
+      "kind": "region",
+      "label": "PC do usuário (Windows)",
+      "wraps": [
+        "bandeja",
+        "config",
+        "nucleo",
+        "toast",
+        "curl",
+        "logs",
+        "relatorio"
+      ]
+    }
   ],
   "connections": [
-    { "id": "bandeja-nucleo", "from": "bandeja", "to": "nucleo", "label": "inicia e controla", "variant": "emphasis" },
-    { "id": "config-nucleo", "from": "config", "to": "nucleo", "label": "lê na partida" },
-    { "id": "nucleo-toast", "from": "nucleo", "to": "toast", "label": "falha confirmada", "variant": "dashed" },
-    { "id": "nucleo-curl", "from": "nucleo", "to": "curl", "label": "1 medição por alvo", "variant": "emphasis" },
-    { "id": "curl-pncp", "from": "curl", "to": "pncp", "label": "HTTPS", "variant": "emphasis" },
-    { "id": "curl-controles", "from": "curl", "to": "controles", "label": "HTTPS" },
-    { "id": "nucleo-logs", "from": "nucleo", "to": "logs", "label": "grava 1 linha JSON", "labelDy": 24 },
-    { "id": "logs-relatorio", "from": "logs", "to": "relatorio", "label": "lê o período" },
-    { "id": "relatorio-chamado", "from": "relatorio", "to": "chamado", "label": "HTML + CSVs", "variant": "dashed" }
+    {
+      "id": "bandeja-nucleo",
+      "from": "bandeja",
+      "to": "nucleo",
+      "label": "inicia e controla",
+      "variant": "emphasis"
+    },
+    {
+      "id": "config-nucleo",
+      "from": "config",
+      "to": "nucleo",
+      "label": "lê na partida"
+    },
+    {
+      "id": "nucleo-toast",
+      "from": "nucleo",
+      "to": "toast",
+      "label": "falha confirmada",
+      "variant": "dashed"
+    },
+    {
+      "id": "nucleo-curl",
+      "from": "nucleo",
+      "to": "curl",
+      "label": "1 medição por alvo",
+      "variant": "emphasis"
+    },
+    {
+      "id": "curl-pncp",
+      "from": "curl",
+      "to": "pncp",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "id": "curl-controles",
+      "from": "curl",
+      "to": "controles",
+      "label": "HTTPS"
+    },
+    {
+      "id": "nucleo-logs",
+      "from": "nucleo",
+      "to": "logs",
+      "label": "grava 1 linha JSON",
+      "labelDy": 24
+    },
+    {
+      "id": "logs-relatorio",
+      "from": "logs",
+      "to": "relatorio",
+      "label": "lê o período"
+    },
+    {
+      "id": "relatorio-chamado",
+      "from": "relatorio",
+      "to": "chamado",
+      "label": "HTML + CSVs",
+      "variant": "dashed"
+    }
   ],
   "cards": [
-    { "dot": "cyan", "title": "Medição", "items": ["2 controles + 6 alvos do PNCP a cada rodada", "Falha repete após 10 s: blip ou falha confirmada", "HTTP 429 é limitação do WAF, não queda"] },
-    { "dot": "emerald", "title": "Registro", "items": ["Um log JSONL por dia, hora local e UTC", "Falha guarda IP, cabeçalhos e trecho do corpo", "Eventos de início, encerramento, lacunas e estado"] },
-    { "dot": "amber", "title": "Relatório", "items": ["Uma pasta por dia: relatorio-AAAAMMDD", "Faixas de barras por serviço e 5 CSVs", "Campo Solicitante editável direto no HTML"] }
+    {
+      "dot": "cyan",
+      "title": "Medição",
+      "items": [
+        "2 controles + 6 alvos do PNCP a cada rodada",
+        "Falha repete após 10 s: blip ou falha confirmada",
+        "HTTP 429 é limitação do WAF, não queda"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Registro",
+      "items": [
+        "Um log JSONL por dia, hora local e UTC",
+        "Falha guarda IP, cabeçalhos e trecho do corpo",
+        "Eventos de início, encerramento, lacunas e estado"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Relatório",
+      "items": [
+        "Uma pasta por dia: relatorio-AAAAMMDD",
+        "Faixas de barras por serviço e 5 CSVs",
+        "Campo Solicitante editável direto no HTML"
+      ]
+    }
   ]
 }
