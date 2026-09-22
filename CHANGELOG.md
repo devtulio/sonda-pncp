@@ -22,8 +22,8 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 - `pip-audit` no job `qualidade`, contra `requirements.txt` (dependências da bandeja: pystray,
   Pillow, winotify — `sonda_core`/`sonda_relatorio` são só stdlib).
 - Dependabot semanal (`pip` e `github-actions`).
-- `master` protegida: os 4 checks do CI obrigatórios antes de mergear, force-push e deleção
-  bloqueados (vale pra admin também).
+- `master` protegida contra force-push e deleção. Sem checks obrigatórios: não há fluxo de PR
+  neste repo, e exigi-los travava o próprio push direto (o check só existe depois do push).
 
 ### Changed
 - **Cadência de início a início.** A espera até a próxima rodada era contada do
