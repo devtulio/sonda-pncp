@@ -168,8 +168,10 @@ Campo `resultado` de cada registro `sonda`:
 | `corpo_invalido` | 2xx, mas o corpo não bate com o `validar` do alvo | **falha** |
 | `bloqueio_429` | HTTP 429 | limitação — **fora** da disponibilidade |
 | `registro_ausente` | HTTP 404 com a mensagem configurada em `ausencia_404` | problema do teste — **fora** da disponibilidade |
+| `erro_local` | curl não conseguiu escrever/reler o corpo em disco (não é o alvo que falhou) | problema da sonda — **fora** da disponibilidade e **fora** de falha confirmada |
 
-Controles só validam o status HTTP (não o corpo).
+Controles validam o corpo também: Google (`google_204`) espera corpo vazio, Cloudflare
+(`cloudflare_trace`) espera a linha `ip=` do `cdn-cgi/trace`.
 
 **429 não é queda.** É o WAF limitando a taxa. Nunca conta como falha,
 nunca dispara repetição e nunca acelera a sondagem; deixa a rodada

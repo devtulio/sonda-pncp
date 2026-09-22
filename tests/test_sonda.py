@@ -46,6 +46,10 @@ class Falso(BaseHTTPRequestHandler):
             self._enviar(200, HTML.encode(), "text/html")
         elif p == "/204":
             self._enviar(204)
+        elif p == "/trace":  # formato real do cdn-cgi/trace do Cloudflare
+            self._enviar(200, b"fl=1f1\nh=www.cloudflare.com\nip=203.0.113.9\nts=1.0\n", "text/plain")
+        elif p == "/trace_ruim":
+            self._enviar(200, b"oi", "text/plain")
         elif p == "/503":
             self._enviar(503, b'{"timestamp":"2026-09-20T05:06:46.370+00:00","status":503,'
                               b'"message":"Failed to obtain JDBC Connection; nested exception"}')
@@ -110,6 +114,18 @@ class TestMedicaoReal(unittest.TestCase):
         self.assertEqual(medir_e_classificar(alvo("/html", tipo="portal", validar="html"))[0], ("ok", ""))
         self.assertEqual(medir_e_classificar(alvo("/204", tipo="controle", validar="status"))[0], ("ok", ""))
 
+    def test_controle_google_204_valida_corpo_vazio(self):
+        self.assertEqual(medir_e_classificar(alvo("/204", tipo="controle", validar="google_204"))[0], ("ok", ""))
+        # 200 com corpo não vazio não é o generate_204 esperado
+        self.assertEqual(medir_e_classificar(alvo("/ok", tipo="controle", validar="google_204"))[0][0],
+                          "corpo_invalido")
+
+    def test_controle_cloudflare_trace_valida_corpo(self):
+        self.assertEqual(medir_e_classificar(alvo("/trace", tipo="controle", validar="cloudflare_trace"))[0],
+                          ("ok", ""))
+        self.assertEqual(medir_e_classificar(alvo("/trace_ruim", tipo="controle", validar="cloudflare_trace"))[0][0],
+                          "corpo_invalido")
+
     def test_http_5xx_e_429(self):
         self.assertEqual(medir_e_classificar(alvo("/503"))[0], ("erro_http", "http_503"))
         (res, det), m = medir_e_classificar(alvo("/429"))
@@ -137,6 +153,37 @@ class TestMedicaoReal(unittest.TestCase):
         b = alvo("/ok")
         b["url"] = "http://nao-existe.invalid/"
         self.assertEqual(medir_e_classificar(b)[0][0], "erro_rede")
+
+
+class TestErroLocal(unittest.TestCase):
+    """erro_local: problema da SONDA (disco/permissão), não do alvo — fora de FALHAS e OKS."""
+
+    def _m(self, **over):
+        base = {"curl_exit": 0, "http": 200, "_corpo": b'{"data":[]}', "total_ms": 100, "bytes": 100}
+        base.update(over)
+        return base
+
+    def test_curl_exit_23_escrita_falhou(self):
+        a = alvo("/x")
+        self.assertEqual(core.classificar(self._m(curl_exit=23), a, cfg_teste()), ("erro_local", "curl_23_escrita_falhou"))
+        self.assertNotIn("erro_local", core.FALHAS)
+        self.assertNotIn("erro_local", core.OKS)
+
+    def test_corpo_ilegivel_com_bytes_baixados(self):
+        a = alvo("/x")
+        m = self._m(_corpo=b"", _corpo_ilegivel=True)
+        self.assertEqual(core.classificar(m, a, cfg_teste()), ("erro_local", "leitura_corpo_falhou"))
+
+    def test_medir_real_marca_corpo_ilegivel_se_a_releitura_falhar(self):
+        # curl grava e baixa bytes de verdade; só a releitura da sonda (open do corpo_p) é que falha
+        a = alvo("/ok")
+        real_open = open
+        with mock.patch("builtins.open", side_effect=lambda p, *a2, **k: (
+            (_ for _ in ()).throw(OSError("sem acesso")) if str(p).endswith("corpo") else real_open(p, *a2, **k))):
+            m = core.medir(a, cfg_teste())
+        self.assertGreater(m["bytes"], 0)
+        self.assertTrue(m.get("_corpo_ilegivel"))
+        self.assertEqual(core.classificar(m, a, cfg_teste()), ("erro_local", "leitura_corpo_falhou"))
 
 
 class TestRegistroAusente(unittest.TestCase):

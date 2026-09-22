@@ -8,6 +8,10 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 - `sonda_iniciada` grava `uptime_pc_s` (segundos desde o boot do Windows, via `GetTickCount64`;
   omitido fora do Windows). Distingue lacuna por reinício/desligamento do PC (`uptime_pc_s` menor
   que `gap_desde_anterior_s`) de queda da própria sonda. A sonda só inicia no logon, não no boot.
+- Resultado `erro_local`: problema da SONDA (curl não conseguiu escrever ou reler o corpo em disco),
+  não do alvo. Fora de `FALHAS` e `OKS` — não conta como disponibilidade nem como falha confirmada.
+  Os controles (Google, Cloudflare) passam a validar o corpo, não só o status HTTP: `google_204`
+  exige corpo vazio, `cloudflare_trace` exige a linha `ip=` do `cdn-cgi/trace`.
 
 ### Changed
 - **Cadência de início a início.** A espera até a próxima rodada era contada do

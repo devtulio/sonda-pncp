@@ -26,6 +26,8 @@ from pathlib import Path
 VERSAO = "1.4.1"
 FALHAS = {"erro_http", "erro_rede", "timeout", "corpo_invalido"}  # falha do lado do alvo
 OKS = {"ok", "lento"}  # resposta válida (lento = válida, porém acima do limiar)
+# erro_local: problema do LADO da sonda (disco cheio, permissão), não do alvo — fora de FALHAS e OKS,
+# não conta nem como disponibilidade nem como falha confirmada.
 LIMITE_DESVIO_MS = 2000  # `desvio_relogio_s` só é gravado com resposta abaixo disto (ver _registro_sonda)
 FOLGA_VIGIA_S = 900  # rodada mais lenta possível (~8 min com tudo em timeout) + margem, antes do vigia acusar "parada"
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # armadilha: sem isso pisca janela
@@ -38,9 +40,9 @@ _PNCP = "https://pncp.gov.br/api/pncp/v1"
 # Limiares de "lento" iniciais são generosos: a linha de base é desconhecida.
 # Recalibrar pelo p95 do relatório após ~7 dias de dados.
 ALVOS_PADRAO = [
-    {"id": "ctrl_google", "nome": "Controle: Google", "tipo": "controle", "validar": "status",
+    {"id": "ctrl_google", "nome": "Controle: Google", "tipo": "controle", "validar": "google_204",
      "url": "https://www.google.com/generate_204", "limiar_lento_ms": 4000, "accept": "*/*"},
-    {"id": "ctrl_cloudflare", "nome": "Controle: Cloudflare", "tipo": "controle", "validar": "status",
+    {"id": "ctrl_cloudflare", "nome": "Controle: Cloudflare", "tipo": "controle", "validar": "cloudflare_trace",
      "url": "https://www.cloudflare.com/cdn-cgi/trace", "limiar_lento_ms": 4000, "accept": "*/*"},
     {"id": "portal", "nome": "Portal PNCP", "tipo": "portal", "validar": "html",
      "url": "https://pncp.gov.br/app/", "limiar_lento_ms": 4000, "accept": "text/html"},
@@ -280,11 +282,16 @@ def _medir_em(tmp, url, alvo, cfg):
         with open(cab_p, encoding="utf-8", errors="replace") as f:
             m["_cab"] = _parse_cabecalhos(f.read())
     except OSError:
-        pass
+        if m["bytes"] > 0:  # curl baixou dados, mas a sonda não conseguiu reler o corpo (disco/permissão): problema local
+            m["_corpo_ilegivel"] = True
     return m
 
 
 def validar(tipo, corpo):
+    if tipo == "google_204":
+        return corpo == b""  # generate_204 sempre responde corpo vazio
+    if tipo == "cloudflare_trace":
+        return b"\nip=" in corpo or corpo.startswith(b"ip=")
     if tipo == "html":
         return b"<html" in corpo[:4000].lower() and len(corpo) > 2000
     if tipo in ("json_data", "json_lista"):
@@ -300,7 +307,9 @@ def validar(tipo, corpo):
 
 def classificar(m, alvo, cfg):
     """→ (resultado, detalhe). Resultados: ok, lento, erro_http, erro_rede, timeout,
-    corpo_invalido, bloqueio_429, registro_ausente."""
+    corpo_invalido, bloqueio_429, registro_ausente, erro_local."""
+    if m["curl_exit"] == 23:  # falha ao ESCREVER o corpo em disco: não é o alvo que falhou, é a sonda
+        return "erro_local", "curl_23_escrita_falhou"
     if m["curl_exit"] != 0:
         nome = CURL_ERROS.get(m["curl_exit"], f"curl_{m['curl_exit']}")
         if m["curl_exit"] == 28:
@@ -308,6 +317,8 @@ def classificar(m, alvo, cfg):
                 return "timeout", "timeout_guarda"
             return "timeout", "timeout_resposta" if m["_conectou"] else "timeout_conexao"
         return "erro_rede", nome
+    if m.get("_corpo_ilegivel"):
+        return "erro_local", "leitura_corpo_falhou"
     h = m["http"]
     if h == 429:
         return "bloqueio_429", "http_429"
@@ -316,7 +327,7 @@ def classificar(m, alvo, cfg):
         return "registro_ausente", "http_404_registro_ausente"
     if not 200 <= h < 300:
         return "erro_http", f"http_{h}"
-    if alvo["tipo"] != "controle" and not validar(alvo.get("validar", "status"), m["_corpo"]):
+    if not validar(alvo.get("validar", "status"), m["_corpo"]):
         return "corpo_invalido", "corpo_vazio" if not m["_corpo"] else "corpo_inesperado"
     return ("lento" if m["total_ms"] > alvo.get("limiar_lento_ms", 5000) else "ok"), ""
 

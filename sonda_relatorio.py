@@ -182,8 +182,9 @@ def br(x, casas=2):
 LIMIARES_ROTULO = (99.0, 95.0)  # disponibilidade % do período: >= 99 Operacional, >= 95 Com problemas, senão Instável
 ROTULOS = {"ok": "Operacional", "lento": "Com problemas", "falha": "Instável", "vazio": "Sem dados"}
 COR_BARRA = {"ok": "#16a34a", "lento": "#d97706", "falha": "#dc2626", "429": "#64748b", "vazio": "#94a3b8",
-             "ausente": "#8b5cf6"}
-NOME_BARRA = {"ok": "ok", "lento": "lenta", "falha": "falha", "429": "HTTP 429", "ausente": "registro de teste ausente"}
+             "ausente": "#8b5cf6", "local": "#0ea5e9"}
+NOME_BARRA = {"ok": "ok", "lento": "lenta", "falha": "falha", "429": "HTTP 429", "ausente": "registro de teste ausente",
+              "local": "erro local da sonda"}
 MAX_BARRAS = 300
 MAX_JANELAS_HTML = 12  # a lista completa fica no CSV; o HTML precisa caber no A4
 
@@ -196,15 +197,17 @@ def _granularidade(span_s, base_s):
     return 86400, "1 dia"
 
 
-def _cor_do_balde(n, nf, nl, n429, naus=0):
+def _cor_do_balde(n, nf, nl, n429, naus=0, nloc=0):
     """Cor de um intervalo: vermelho se >= 25% falharam; âmbar se houve falha ou >= 25% lentas; cinza se só 429;
-    violeta se só registro de teste ausente (não é queda, e não é "ok" nem "sem dados")."""
+    violeta se só registro de teste ausente; azul se só erro local da sonda (nenhum dos dois é queda do alvo)."""
     if nf / n >= 0.25:
         return "falha"
     if nf or nl / n >= 0.25:
         return "lento"
     if naus == n:
         return "ausente"
+    if nloc == n:
+        return "local"
     return "429" if n429 == n else "ok"
 
 
@@ -219,8 +222,10 @@ def _baldes(medicoes, t0, tam, teto_s):
         nl = sum(r == "lento" for r, _ in g)
         n429 = sum(r == "bloqueio_429" for r, _ in g)
         naus = sum(r == "registro_ausente" for r, _ in g)
-        lat = [teto_s if r in FALHAS else ms / 1000 for r, ms in g if r not in ("bloqueio_429", "registro_ausente")]
-        out[i] = (_cor_do_balde(len(g), nf, nl, n429, naus), _pct(lat, 95) if lat else 0, len(g), nf, nl)
+        nloc = sum(r == "erro_local" for r, _ in g)
+        fora = ("bloqueio_429", "registro_ausente", "erro_local")
+        lat = [teto_s if r in FALHAS else ms / 1000 for r, ms in g if r not in fora]
+        out[i] = (_cor_do_balde(len(g), nf, nl, n429, naus, nloc), _pct(lat, 95) if lat else 0, len(g), nf, nl)
     return out
 
 
@@ -237,7 +242,8 @@ def _periodo_mediano(por_alvo, base_s):
 def _cor_da_medicao(resultado):
     if resultado in FALHAS:
         return "falha"
-    return {"lento": "lento", "bloqueio_429": "429", "registro_ausente": "ausente"}.get(resultado, "ok")
+    return {"lento": "lento", "bloqueio_429": "429", "registro_ausente": "ausente",
+            "erro_local": "local"}.get(resultado, "ok")
 
 
 def _rotulo(disp):
