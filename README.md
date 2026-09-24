@@ -113,8 +113,9 @@ classificação de erros, máquina de estados, lacunas, relatório).
   rodada é "sem rede" e os alvos do PNCP nem são medidos: falha da sua
   conexão não vira queda do PNCP.
 - **Ausência de registro não é disponibilidade.** PC desligado ou
-  suspenso vira lacuna explícita no relatório, com o motivo quando dá pra
-  saber.
+  suspenso vira lacuna explícita no relatório, com a causa provável: PC
+  desligado ou suspenso (inclusive o "Desligar" com Inicialização Rápida),
+  PC reiniciado ou sonda parada com o PC ligado.
 - **Evidência completa na falha.** Falha grava IP, cabeçalhos completos,
   trecho do corpo e o horário do erro segundo o próprio PNCP; sucesso
   grava só o hash do corpo.

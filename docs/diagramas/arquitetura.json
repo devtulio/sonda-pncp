@@ -242,7 +242,7 @@
       "items": [
         "Um log JSONL por dia, hora local e UTC",
         "Falha guarda IP, cabeçalhos e trecho do corpo",
-        "Eventos de início, encerramento, lacunas e estado"
+        "Lacuna diz se o PC parou ou a sonda caiu"
       ]
     },
     {
