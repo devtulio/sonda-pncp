@@ -2,6 +2,26 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
+## [1.6.0] — 2026-09-23
+
+### Added
+- Campo `ativo_s` em toda linha do log (Windows): segundos em que o PC esteve ligado desde o
+  último boot do zero, sem contar suspensão nem hibernação (`QueryUnbiasedInterruptTime`).
+- `sonda_iniciada` grava `pc_reiniciou` e `pc_parado_s`: comparando o `ativo_s` da última linha
+  com o de agora, diz quanto da lacuna o PC passou desligado ou suspenso, ou que houve um boot do
+  zero no meio. Log anterior à 1.6.0 (sem `ativo_s`) não gera os campos.
+- Coluna `Causa provável` no fim de `5_lacunas.csv`: PC reiniciado, PC desligado ou suspenso, ou
+  sonda parada com o PC ligado.
+
+### Fixed
+- O `uptime_pc_s` da 1.5.0 não distinguia desligamento de queda da sonda: com a Inicialização
+  Rápida do Windows (ligada por padrão), "Desligar" hiberna o kernel e o `GetTickCount64`
+  continua contando. Em 22-23/09 três desligamentos (Event Log: 1074 → 42 → boot tipo 0x1)
+  apareceram com `uptime_pc_s` maior que a lacuna, como se a sonda tivesse caído com o PC
+  ligado. Medido: a diferença entre os dois contadores era 47,2 min, e o desligamento de
+  16:45:12 a 17:32:29 durou 47,3 min. O campo continua no log (contrato), com a limitação
+  documentada; `pc_parado_s` é quem responde.
+
 ## [1.5.0] — 2026-09-21
 
 ### Added

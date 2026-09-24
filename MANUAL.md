@@ -322,6 +322,10 @@ também para `logs/sonda-erros.log`.
 
 Toda linha tem `tipo` (`sonda`, `rodada` ou `evento`), `ts_local` (com
 fuso) e `ts_utc` (`...Z`). O nome do arquivo segue a data de `ts_local`.
+No Windows, toda linha também tem `ativo_s` (desde a 1.6.0): segundos em que o PC
+esteve ligado desde o último boot do zero, **sem contar suspensão nem hibernação**
+(`QueryUnbiasedInterruptTime`), lido no momento da gravação. A partida seguinte
+compara esse contador com o relógio para saber se o PC ficou parado na lacuna.
 **A ordem das linhas não é cronológica:** o resumo `rodada` é gravado no fim da
 rodada, mas com o horário do **início** dela, então vem depois de medições de
 horário maior. Quem lê o log deve ordenar por `ts_utc`. A leitura (relatório e
@@ -357,7 +361,7 @@ rodada, já descontada a duração desta; `0` se ela passou do intervalo).
 
 | `evento` | Quando | Campos extras |
 |---|---|---|
-| `sonda_iniciada` | ao subir | `versao`, `host`, `python`, `intervalo_normal_s`, `ultimo_registro_anterior`, `gap_desde_anterior_s`, `encerramento_anterior_limpo`, `uptime_pc_s` (segundos desde o boot do Windows; se for menor que o gap, o PC reiniciou/desligou e a sonda não caiu sozinha) |
+| `sonda_iniciada` | ao subir | `versao`, `host`, `python`, `intervalo_normal_s`, `ultimo_registro_anterior`, `gap_desde_anterior_s`, `encerramento_anterior_limpo`, `pc_reiniciou` e `pc_parado_s` (1.6.0+; ver abaixo), `uptime_pc_s` (segundos desde o boot do Windows; **não** distingue o "Desligar" com Inicialização Rápida, que é hibernação e não zera o contador: use `pc_parado_s`) |
 | `sonda_encerrada` | ao encerrar | `motivo` (`menu`, `comando_encerrar`, `saida_inesperada`), `rodadas` |
 | `mudanca_estado` | a cor do ícone mudou | `de`, `para`, `estado_rodada`, `falhas` |
 | `mudanca_ip` | um alvo **do PNCP** passou a responder de outro IP (os controles trocam de IP a cada consulta por balanceamento: seriam só ruído) | `alvo`, `de`, `para` |
@@ -432,7 +436,7 @@ executaria como fórmula na máquina de quem abre o anexo.
 | `2_janelas_de_incidente.csv` | rodadas em falha unidas quando a distância é ≤ 90 min: início, fim, duração, rodadas, alvos, falhas por tipo, mensagens do PNCP reconhecidas |
 | `3_ocorrencias.csv` | toda medição que não foi ok/lenta (inclui 429, registro ausente e 2ª tentativas), com IP, tempos, trecho do corpo e horário do erro segundo o PNCP |
 | `4_cobertura_diaria.csv` | rodadas registradas × esperadas por dia, **a partir do dia do primeiro registro** (antes disso a sonda não existia). O 1º dia conta desde a 1ª rodada. Como o intervalo é de início a início, uma sonda sem lacuna sai com ~100%; em modo incidente há mais rodadas que o esperado e o valor é limitado a 100% (em logs anteriores à 1.5.0 o período era `duração + intervalo`, e a cobertura saía com ~90–95%) |
-| `5_lacunas.csv` | intervalos sem registro, com o motivo quando conhecido |
+| `5_lacunas.csv` | intervalos sem registro, com o motivo quando conhecido e a `Causa provável` (1.6.0+): PC reiniciado, PC desligado ou suspenso, ou sonda parada com o PC ligado |
 
 ## Notificações
 
@@ -474,7 +478,12 @@ derrubar a sonda. O toast mostra só a primeira linha da mensagem.
   automático usa a pasta Startup, que só roda no logon. Um reinício do Windows
   sem ninguém logado (atualização na madrugada) deixa a sonda parada até o
   próximo logon, e o "Desligar" encerra o processo sem gravar `sonda_encerrada`.
-  As lacunas ficam registradas.
+  As lacunas ficam registradas, e desde a 1.6.0 a partida diz o que houve nelas:
+  `pc_reiniciou: true` (o contador `ativo_s` voltou: boot do zero no meio) ou
+  `pc_parado_s` (quanto da lacuna o PC passou desligado ou suspenso; perto da
+  lacuna inteira = PC parado, perto de 0 = a sonda parou com o PC ligado). Com a
+  **Inicialização Rápida** do Windows (padrão), "Desligar" é uma hibernação: o
+  `uptime_pc_s` continua contando, e só o `pc_parado_s` enxerga o PC desligado.
 - **Cadência:** o intervalo vale de início a início. Uma rodada leva ~1 min com o
   PNCP bom e de 5 a 8 min com ele em timeout; se passar do intervalo, a seguinte
   começa logo depois (a resolução em incidente é então a própria duração da

@@ -422,6 +422,46 @@ class TestLacunasEInicio(Base):
         ini = [e for e in self.registros("evento") if e["evento"] == "sonda_iniciada"][-1]
         self.assertEqual(ini["uptime_pc_s"], 1234)
 
+    def test_inicio_mede_quanto_o_pc_ficou_parado_na_lacuna(self):
+        # 3 h de lacuna em que o PC só andou 10 min (o resto desligado com Inicialização Rápida ou suspenso)
+        with mock.patch.object(core, "ativo_s", return_value=1000.0):
+            self.sonda().rodada()
+        self.relogio.avancar(hours=3)
+        with mock.patch.object(core, "ativo_s", return_value=1600.0):
+            self.sonda().iniciar()
+        ini = [e for e in self.registros("evento") if e["evento"] == "sonda_iniciada"][-1]
+        self.assertEqual((ini["pc_reiniciou"], ini["pc_parado_s"]), (False, 3 * 3600 - 600))
+
+    def test_inicio_detecta_boot_do_zero_pelo_contador_que_voltou(self):
+        with mock.patch.object(core, "ativo_s", return_value=90000.0):
+            self.sonda().rodada()
+        self.relogio.avancar(hours=1)
+        with mock.patch.object(core, "ativo_s", return_value=120.0):
+            self.sonda().iniciar()
+        ini = [e for e in self.registros("evento") if e["evento"] == "sonda_iniciada"][-1]
+        self.assertTrue(ini["pc_reiniciou"])
+        self.assertNotIn("pc_parado_s", ini)
+
+    def test_pc_na_lacuna_sem_dado_nao_afirma_nada(self):
+        self.assertEqual(core._pc_na_lacuna(None, 1.0, 2.0), {})
+        self.assertEqual(core._pc_na_lacuna(60, None, 2.0), {})  # log anterior à 1.6.0 não tem ativo_s
+        self.assertEqual(core._pc_na_lacuna(60, 1.0, None), {})
+        self.assertEqual(core._pc_na_lacuna(60, 1.0, 100.0)["pc_parado_s"], 0)  # PC ligado o tempo todo
+
+    @unittest.skipUnless(sys.platform == "win32", "QueryUnbiasedInterruptTime é do Windows")
+    def test_ativo_real_nao_passa_do_uptime(self):
+        at, up = core.ativo_s(), core.uptime_pc_s()
+        self.assertGreater(at, 0)
+        self.assertLessEqual(at, up + 1)  # o ativo não conta suspensão/hibernação: nunca maior que o uptime
+
+    def test_causa_da_lacuna_no_relatorio(self):
+        self.assertEqual(rel._causa_lacuna({"pc_reiniciou": True}), "PC reiniciado")
+        self.assertEqual(rel._causa_lacuna({"pc_parado_s": 9000, "gap_desde_anterior_s": 10000}),
+                         "PC desligado ou suspenso")
+        self.assertEqual(rel._causa_lacuna({"pc_parado_s": 5, "gap_desde_anterior_s": 10000}),
+                         "sonda parada com o PC ligado")
+        self.assertEqual(rel._causa_lacuna({"evento": "sonda_iniciada"}), "")  # log antigo
+
     def test_inicio_sem_uptime_omite_o_campo(self):
         with mock.patch.object(core, "uptime_pc_s", return_value=None):
             self.sonda().iniciar()

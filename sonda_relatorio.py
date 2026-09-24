@@ -54,6 +54,17 @@ def _disp_ponderada(s1):
     return f"{100 * disp / total:.2f}".replace(".", ",") if total else ""
 
 
+def _causa_lacuna(ev):
+    """Pelo `sonda_iniciada` que fechou a lacuna (1.6.0+): PC reiniciado, PC parado (desligado/suspenso, inclusive
+    o "Desligar" com Inicialização Rápida) ou sonda parada com o PC ligado. '' se o evento não traz os campos."""
+    if ev.get("pc_reiniciou"):
+        return "PC reiniciado"
+    parado, gap = ev.get("pc_parado_s"), ev.get("gap_desde_anterior_s")
+    if not isinstance(parado, (int, float)) or not gap:
+        return ""
+    return "PC desligado ou suspenso" if parado >= gap / 2 else "sonda parada com o PC ligado"
+
+
 def _fmt(iso):
     return datetime.fromisoformat(iso).strftime("%d/%m/%Y %H:%M:%S") if iso else ""
 
@@ -172,8 +183,10 @@ def gerar_relatorio(pasta, dias=7, agora=None):
                                                               "erro_interno")
                   and ta <= datetime.fromisoformat(e["ts_utc"]) <= tb]
             motivo = ev[-1].get("motivo") or ev[-1]["evento"] if ev else "sem registro (PC desligado, suspenso ou sonda parada?)"
-            linhas.append([_fmt(a["ts_local"]), _fmt(b["ts_local"]), round((tb - ta).total_seconds() / 60, 1), motivo])
-    _csv(out / "5_lacunas.csv", ["Último registro antes", "Primeiro registro depois", "Duração (min)", "Motivo"], linhas)
+            linhas.append([_fmt(a["ts_local"]), _fmt(b["ts_local"]), round((tb - ta).total_seconds() / 60, 1), motivo,
+                           _causa_lacuna(ev[-1] if ev else {})])
+    _csv(out / "5_lacunas.csv", ["Último registro antes", "Primeiro registro depois", "Duração (min)", "Motivo",
+                                 "Causa provável"], linhas)
     _resumo_html(out, cfg, ini, fim, sondas, rodadas, jan, len(linhas), len(rejeitadas))
     return _publicar(out, destino, agora)
 

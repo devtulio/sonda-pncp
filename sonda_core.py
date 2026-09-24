@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, UTC
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-VERSAO = "1.5.0"
+VERSAO = "1.6.0"
 FALHAS = {"erro_http", "erro_rede", "timeout", "corpo_invalido"}  # falha do lado do alvo
 OKS = {"ok", "lento"}  # resposta válida (lento = válida, porém acima do limiar)
 # erro_local: problema do LADO da sonda (disco cheio, permissão), não do alvo — fora de FALHAS e OKS,
@@ -434,8 +434,34 @@ def compactar_antigos(pasta, dias):
 
 # ───────────────────────── a sonda ─────────────────────────
 
+def ativo_s():
+    """Segundos em que o PC esteve LIGADO desde o último boot do zero (QueryUnbiasedInterruptTime): não conta
+    suspensão nem hibernação, e o "Desligar" com a Inicialização Rápida do Windows é uma hibernação. None fora do
+    Windows ou se a chamada falhar."""
+    try:
+        import ctypes
+        v = ctypes.c_ulonglong()
+        if not ctypes.windll.kernel32.QueryUnbiasedInterruptTime(ctypes.byref(v)):  # type: ignore[attr-defined]
+            return None
+        return round(v.value / 1e7, 1)  # unidades de 100 ns
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
+def _pc_na_lacuna(gap_s, ativo_antes, ativo_agora):
+    """Campos de `sonda_iniciada` sobre o PC na lacuna. Contador ativo andou menos que o relógio = PC parado
+    (desligado ou suspenso) a diferença; andou para trás = houve boot do zero no meio. {} se faltar dado."""
+    if gap_s is None or not isinstance(ativo_antes, (int, float)) or ativo_agora is None:
+        return {}
+    if ativo_agora < ativo_antes:
+        return {"pc_reiniciou": True}
+    return {"pc_reiniciou": False, "pc_parado_s": round(max(0.0, gap_s - (ativo_agora - ativo_antes)))}
+
+
 def uptime_pc_s():
-    """Segundos desde o boot do Windows (GetTickCount64); None fora do Windows ou se a chamada falhar."""
+    """Segundos desde o boot do Windows (GetTickCount64); None fora do Windows ou se a chamada falhar.
+    CONTA o tempo desligado com a Inicialização Rápida (é hibernação): para saber se o PC ficou parado numa
+    lacuna, use `ativo_s`."""
     try:
         import ctypes
         f = ctypes.windll.kernel32.GetTickCount64  # type: ignore[attr-defined]
@@ -481,8 +507,12 @@ class Sonda:
     # -- registros --
     def _ts(self, a=None):
         a = a or self.agora()
-        return {"ts_local": a.astimezone().isoformat(timespec="milliseconds"),
-                "ts_utc": a.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")}
+        r = {"ts_local": a.astimezone().isoformat(timespec="milliseconds"),
+             "ts_utc": a.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")}
+        at = ativo_s()  # no momento da gravação: a próxima partida compara com ele para saber se o PC ficou parado
+        if at is not None:
+            r["ativo_s"] = at
+        return r
 
     def evento(self, nome, **campos):
         self.log.escrever({"tipo": "evento", **self._ts(), "evento": nome, **campos})
@@ -586,14 +616,16 @@ class Sonda:
                   "intervalo_normal_s": self.cfg["intervalo_normal_s"]}
         if ult:
             campos["ultimo_registro_anterior"] = ult.get("ts_local")
+            gap = None
             try:
                 gap = (self.agora() - datetime.fromisoformat(ult["ts_utc"])).total_seconds()
                 campos["gap_desde_anterior_s"] = round(gap)
             except (KeyError, ValueError):
                 pass
             campos["encerramento_anterior_limpo"] = ult.get("evento") == "sonda_encerrada"
+            campos.update(_pc_na_lacuna(gap, ult.get("ativo_s"), ativo_s()))
         up = uptime_pc_s()
-        if up is not None:  # PC ligado há menos que o gap = a sonda parou porque o PC reiniciou/desligou
+        if up is not None:
             campos["uptime_pc_s"] = up
         self.evento("sonda_iniciada", **campos)
         self._pulso()
