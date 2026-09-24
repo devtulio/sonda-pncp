@@ -66,8 +66,8 @@ fragmenta nada:
 
 - `resumo_para_chamado.html` — uma página imprimível (A4) com cobertura,
   disponibilidade e latência por serviço, faixas de barras de
-  estado/latência por serviço (como o statuslicitacoes), janelas de incidente, exemplos de falha com o horário
-  do erro segundo o próprio PNCP e o método. Traz o campo
+  estado/latência por serviço (como o statuslicitacoes), janelas de incidente, exemplos de falha (um
+  por tipo, com o trecho da resposta do PNCP) e o método. Traz o campo
   `Solicitante`, um campo **editável direto na página** (clique, digite, imprima);
   o navegador lembra o texto nos próximos relatórios. Vazio, mostra um aviso
   vermelho — nada é enviado sozinho.

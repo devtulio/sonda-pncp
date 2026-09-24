@@ -393,10 +393,11 @@ Página única, imprimível em A4, autocontida (SVG inline, sem dependências):
 - **Cobertura:** rodadas registradas × esperadas (da primeira à última
   rodada), período, nº de lacunas e, se houver, quantas linhas ilegíveis do
   log foram ignoradas.
-- **Resultado por serviço** (só alvos do PNCP, 1ª tentativa): medições,
-  disponibilidade %, falhas, *recuperadas na 2ª tentativa*, *falhas
-  confirmadas*, lentas, HTTP 429, p50/p95/máx (ms) e *Demora > 10 s* /
-  *Demora > 20 s* %.
+- **Resultado por serviço** (só alvos do PNCP, 1ª tentativa), com o cabeçalho
+  agrupado: medições; disponibilidade % *por medição* e *por tempo*; falhas
+  (*total*, *recuperadas na 2ª* tentativa, *confirmadas*); lentas; HTTP 429;
+  latência p50/p95/máx em **segundos** (os CSVs seguem em ms); *Demora > 10 s* /
+  *> 20 s* %.
 - **Estado e latência ao longo do tempo:** um cartão do período (serviços
   por rótulo e selo geral) e uma linha por serviço com bolinha de estado,
   uma **faixa de barras** e o rótulo à direita com disponibilidade e p95.
@@ -416,7 +417,9 @@ Página única, imprimível em A4, autocontida (SVG inline, sem dependências):
     problemas**, abaixo **Instável**; sem medição = **Sem dados**. Os limites
     são `LIMIARES_ROTULO` em `sonda_relatorio.py` (podem ser recalibrados).
 - **Janelas de incidente** (até 12; o CSV tem todas), **exemplos de falha**
-  (até 8) e **método**.
+  (o mais recente de cada tipo de falha, até 8, com o trecho da resposta do
+  PNCP; "nenhuma resposta" em timeout/conexão, "resposta vazia" em corpo vazio)
+  e **método**.
 - O campo **Solicitante**, editável direto na página: clique, digite e imprima ou
   salve em PDF. O texto fica no `localStorage` do navegador (chave
   `sonda_pncp_solicitante`), então relatórios seguintes, gerados no mesmo

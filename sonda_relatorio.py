@@ -373,9 +373,13 @@ body{font:14px/1.5 Segoe UI,Arial,sans-serif;max-width:960px;margin:24px auto;pa
 h1{font-size:20px;margin:0 0 4px}
 h2{font-size:16px;margin:24px 0 6px;border-bottom:1px solid #999}
 table{border-collapse:collapse;width:100%;font-size:12.5px}
-th,td{border:1px solid #bbb;padding:3px 6px;text-align:right}
-th{background:#eee}
-td:first-child,th:first-child{text-align:left}
+th,td{border:1px solid #bbb;padding:3px 6px;text-align:right;font-variant-numeric:tabular-nums}
+th{background:#eee;font-weight:600;vertical-align:bottom}
+th.g{text-align:center;vertical-align:middle}
+td:first-child,th:first-child,.txt{text-align:left}
+td:first-child,.nw{white-space:nowrap}
+tbody tr:nth-child(even) td{background:#fafafa}
+.sem{color:#888}
 .id{margin:10px 0}
 .id span{display:inline-block;min-width:22em;border-bottom:1px dashed #888;outline:none}
 .id span:empty::before{content:attr(data-ph);color:#b00;font-weight:600}
@@ -433,13 +437,13 @@ def _resumo_html(out, cfg, ini, fim, sondas, rodadas, janelas, n_lacunas, n_reje
         conf = sum(1 for r in rodadas if r["alvos"].get(a["id"]) in FALHAS)
         blips = sum(1 for r in rodadas if r["alvos"].get(a["id"]) == "blip")
         lat = [s["total_ms"] for s in s1 if s["resultado"] in OKS]
+        seg = [br(v / 1000, 1) for v in (_pct(lat, 50), _pct(lat, 95), max(lat))] if lat else ["-"] * 3
         linhas.append(f"<tr><td>{esc(a['nome'])}</td><td>{len(s1)}</td>"
-                      f"<td>{br(100 * val / (val + fal1)) if val + fal1 else '-'}</td><td>{fal1}</td>"
+                      f"<td>{br(100 * val / (val + fal1)) if val + fal1 else '-'}</td>"
+                      f"<td>{_disp_ponderada(s1) or '-'}</td><td>{fal1}</td>"
                       f"<td>{blips}</td><td>{conf}</td><td>{c['lento']}</td><td>{c['bloqueio_429']}</td>"
-                      f"<td>{_pct(lat, 50) if lat else '-'}</td><td>{_pct(lat, 95) if lat else '-'}</td>"
-                      f"<td>{max(lat) if lat else '-'}</td>"
-                      + "".join(f"<td>{_demora(s1, x) or '-'}</td>" for x in LIMIARES_DEMORA_S)
-                      + f"<td>{_disp_ponderada(s1) or '-'}</td></tr>")
+                      + "".join(f"<td>{v}</td>" for v in seg)
+                      + "".join(f"<td>{_demora(s1, x) or '-'}</td>" for x in LIMIARES_DEMORA_S) + "</tr>")
     jan = "".join(f"<tr><td>{j['ini']:%d/%m/%Y %H:%M}</td><td>{j['fim']:%H:%M}</td>"
                   f"<td>{round((j['fim'] - j['ini']).total_seconds() / 60, 1)}</td>"
                   f"<td>{esc(', '.join(sorted(j['alvos'])))}</td></tr>" for j in janelas[:MAX_JANELAS_HTML]) \
@@ -447,12 +451,26 @@ def _resumo_html(out, cfg, ini, fim, sondas, rodadas, janelas, n_lacunas, n_reje
     if len(janelas) > MAX_JANELAS_HTML:
         jan += (f'<tr><td colspan="4">e mais {len(janelas) - MAX_JANELAS_HTML} janela(s): '
                 'lista completa em 2_janelas_de_incidente.csv</td></tr>')
-    ex = [s for s in sondas if s["resultado"] in FALHAS][:8]
-    exs = "".join(f"<tr><td>{_fmt(s['ts_local'])}</td><td>{esc(s['alvo'])}</td><td>{s['tentativa']}</td>"
-                  f"<td>{esc(s['detalhe'])}{' / HTTP ' + str(s['http']) if s['http'] else ''}</td>"
-                  f"<td>{s['total_ms']}</td><td>{esc(s.get('pncp_ts_erro', ''))}</td>"
-                  f"<td>{esc(s.get('corpo_trecho', '')[:120])}</td></tr>" for s in ex) \
-        or '<tr><td colspan="7">Nenhuma falha registrada.</td></tr>'
+    nomes = {a["id"]: a["nome"] for a in alvos}
+    por_tipo = {}  # o exemplo mais recente de cada tipo de falha: 8 timeouts seguidos não mostram nada novo
+    for s in sondas:
+        if s["resultado"] in FALHAS:
+            por_tipo[(s["detalhe"], s["http"])] = s
+    ex = sorted(por_tipo.values(), key=lambda s: s["ts_utc"])[-8:]
+    def falha(s):
+        d = s["detalhe"]
+        return f"HTTP {s['http']}" if d.startswith("http_") else d.replace("_", " ") + (
+            f" (HTTP {s['http']})" if s["http"] else "")
+
+    def resposta(s):
+        if s.get("corpo_trecho"):
+            return esc(s["corpo_trecho"][:120])
+        return '<span class="sem">' + ("resposta vazia (0 bytes)" if s["http"] else "nenhuma resposta") + "</span>"
+
+    exs = "".join(f'<tr><td>{_fmt(s["ts_local"])}</td><td class="txt nw">{esc(nomes.get(s["alvo"], s["alvo"]))}</td>'
+                  f'<td>{s["tentativa"]}</td><td class="txt nw">{esc(falha(s))}</td>'
+                  f'<td>{br(s["total_ms"] / 1000, 1)}</td><td class="txt">{resposta(s)}</td></tr>' for s in ex) \
+        or '<tr><td colspan="6">Nenhuma falha registrada.</td></tr>'
     grafico = _grafico(sondas, alvos, cfg)
     (out / "resumo_para_chamado.html").write_text(f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
 <title>Sonda PNCP - resumo</title><style>{CSS_RESUMO}</style></head><body>
@@ -476,10 +494,12 @@ data-ph="[clique aqui e preencha a identificação antes de anexar]"></span>
 {cfg['intervalo_normal_s'] // 60} min), de {_fmt(primeira) or '-'} a {_fmt(ultima) or '-'}; {n_lacunas} lacuna(s) sem registro
 (PC desligado ou suspenso, sonda parada ou pausada). Ausência de registro não é contada como disponibilidade.{aviso_log}</p>
 <h2>Resultado por serviço (1ª tentativa de cada medição)</h2>
-<table><tr><th>Serviço</th><th>Medições</th><th>Disp. %</th><th>Falhas</th><th>Recuperadas na 2ª tentativa</th>
-<th>Falhas confirmadas</th><th>Lentas</th><th>HTTP 429</th><th>p50 ms</th><th>p95 ms</th><th>Máx ms</th>
-{''.join(f'<th>Demora &gt; {x} s %</th>' for x in LIMIARES_DEMORA_S)}<th>Disp. ponderada por tempo %</th></tr>
-{''.join(linhas)}</table>
+<table><thead><tr><th rowspan="2">Serviço</th><th rowspan="2">Medições</th><th class="g" colspan="2">Disponibilidade %</th>
+<th class="g" colspan="3">Falhas</th><th rowspan="2">Lentas</th><th rowspan="2">HTTP 429</th>
+<th class="g" colspan="3">Latência (s)</th><th class="g" colspan="{len(LIMIARES_DEMORA_S)}">Demora %</th></tr>
+<tr><th>por medição</th><th>por tempo</th><th>total</th><th>recuperadas na 2ª</th><th>confirmadas</th>
+<th>p50</th><th>p95</th><th>máx</th>{''.join(f'<th>&gt; {x} s</th>' for x in LIMIARES_DEMORA_S)}</tr></thead>
+<tbody>{''.join(linhas)}</tbody></table>
 <p class="nota">Falha = erro HTTP, erro de rede, tempo esgotado ({cfg['timeout_total_s']} s) ou corpo inválido.
 Falha repete após {cfg['retry_apos_falha_s']} s; "confirmada" = falhou também na 2ª tentativa. Disponibilidade =
 (ok + lentas) / (ok + lentas + falhas); HTTP 429 fica fora (limitação, não queda). Latências (p50/p95/máx) só de
@@ -492,9 +512,9 @@ Controles (Google, Cloudflare) medidos a cada rodada; se ambos caem, a rodada é
 {grafico}
 <h2>Janelas de incidente</h2>
 <table><tr><th>Início</th><th>Fim</th><th>Duração (min)</th><th>Serviços afetados</th></tr>{jan}</table>
-<h2>Exemplos de falha (até 8; todas nos CSVs anexos)</h2>
-<table><tr><th>Horário local</th><th>Serviço</th><th>Tent.</th><th>Detalhe</th><th>ms</th>
-<th>Horário do erro (PNCP)</th><th>Trecho da resposta</th></tr>{exs}</table>
+<h2>Exemplos de falha (o mais recente de cada tipo; todas nos CSVs anexos)</h2>
+<table><thead><tr><th>Horário local</th><th class="txt">Serviço</th><th>Tent.</th><th class="txt">Falha</th>
+<th class="nw">Tempo (s)</th><th class="txt">Resposta do PNCP (trecho)</th></tr></thead><tbody>{exs}</tbody></table>
 <h2>Método</h2>
 <p class="nota">Medição com curl.exe a cada {cfg['intervalo_normal_s'] // 60} min (a cada
 {cfg['intervalo_incidente_s']} s durante incidente), de um único ponto de observação, com horário local e UTC em

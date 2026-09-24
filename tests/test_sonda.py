@@ -632,6 +632,32 @@ class TestDispPonderada(unittest.TestCase):
         self.assertEqual(rel._disp_ponderada([]), "")
 
 
+class TestResumoTabelas(Base):
+    def test_exemplos_um_por_tipo_e_sem_celula_vazia(self):
+        s = self.sonda(portal=["503", "503", "503", "503"])  # 2 rodadas, 4 falhas do mesmo tipo
+        s.rodada()
+        self.relogio.avancar(minutes=5)
+        s.rodada()
+        out = rel.gerar_relatorio(self.pasta, 1, agora=self.relogio.t + timedelta(minutes=1))
+        h = (out / "resumo_para_chamado.html").read_text(encoding="utf-8")
+        ex = h[h.index("Exemplos de falha"):h.index("<h2>Método")]
+        self.assertEqual(ex.count("<tr><td>"), 1)  # 4 falhas iguais viram 1 exemplo
+        self.assertIn("HTTP 503", ex)
+        self.assertNotIn("<td></td>", ex)
+        self.assertNotIn("Horário do erro", ex)
+
+    def test_tabela_por_servico_agrupa_cabecalho_e_latencia_em_segundos(self):
+        s = self.sonda()
+        s.rodada()
+        out = rel.gerar_relatorio(self.pasta, 1, agora=self.relogio.t + timedelta(minutes=1))
+        h = (out / "resumo_para_chamado.html").read_text(encoding="utf-8")
+        tab = h[h.index("Resultado por serviço"):h.index("</table>", h.index("Resultado por serviço"))]
+        self.assertEqual(tab.count('class="g" colspan='), 4)
+        for grupo in ("Disponibilidade %", "Falhas", "Latência (s)", "Demora %"):
+            self.assertIn(grupo, tab)
+        self.assertNotIn(" ms<", tab)
+
+
 class TestRelatorio(Base):
     def test_disponibilidade_janelas_ocorrencias_e_lacunas(self):
         # portal, 1ª tentativa nas 5 rodadas: ok, ok, 503 (+retry 503), ok, ok → 4/5 = 80%

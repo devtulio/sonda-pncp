@@ -2,6 +2,20 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
+## [1.6.1] — 2026-09-23
+
+### Fixed
+- Resumo HTML, tabela **Resultado por serviço**: cabeçalho agrupado (Disponibilidade % por
+  medição / por tempo, Falhas, Latência, Demora %), disponibilidade por tempo ao lado da por
+  medição, nome do serviço sem quebra, latência em segundos com 1 casa (os CSVs seguem em ms),
+  algarismos alinhados. A tabela anterior tinha 15 colunas de cabeçalho quebrado.
+- Resumo HTML, **Exemplos de falha**: mostrava as 8 primeiras falhas do período (em 20-23/09,
+  8 timeouts de 20/09), então as colunas "Horário do erro (PNCP)" e "Trecho da resposta" saíam
+  sempre vazias. Agora mostra o exemplo mais recente de cada tipo de falha (timeout, HTTP 500,
+  502, 503, 422, corpo vazio...), com o nome do serviço, a falha legível e o trecho da resposta,
+  ou "nenhuma resposta"/"resposta vazia (0 bytes)"; a coluna de horário do PNCP saiu (o horário
+  aparece no próprio trecho quando existe). Layout do HTML não é contrato.
+
 ## [1.6.0] — 2026-09-23
 
 ### Added
