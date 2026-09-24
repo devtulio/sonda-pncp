@@ -92,8 +92,8 @@ Definidos em `config.json` (chave `alvos`). Os padrões:
 
 | `id` | Tipo | O que consulta | Valida |
 |---|---|---|---|
-| `ctrl_google` | controle | `https://www.google.com/generate_204` | status HTTP |
-| `ctrl_cloudflare` | controle | `https://www.cloudflare.com/cdn-cgi/trace` | status HTTP |
+| `ctrl_google` | controle | `https://www.google.com/generate_204` | corpo vazio (`google_204`) |
+| `ctrl_cloudflare` | controle | `https://www.cloudflare.com/cdn-cgi/trace` (por IPv4) | linha `ip=` (`cloudflare_trace`); o `ip=` vira o `ip_publico` da rodada |
 | `portal` | portal | `https://pncp.gov.br/app/` | HTML (`<html`, > 2000 bytes) |
 | `api_contratacoes` | api | `/api/consulta/v1/contratacoes/publicacao` (ontem→hoje, modalidade 6) | `{"data": [...]}` |
 | `api_contratos` | api | `/api/consulta/v1/contratos/atualizacao` (30 dias, um CNPJ) | `{"data": [...]}` |
@@ -150,9 +150,11 @@ marcadores, apague a chave `alvos` do `config.json` — a sonda volta a usar a
 lista padrão, com as mesmas URLs — e reinicie.
 
 Campos de cada alvo: `id`, `nome`, `tipo` (`controle` / `portal` / `api`),
-`validar` (`status`, `html`, `json_data`, `json_lista`), `url`,
-`limiar_lento_ms`, `accept` (opcional) e `ausencia_404` (opcional, ver
-[registro ausente](#registro-ausente)).
+`validar` (`status`, `html`, `json_data`, `json_lista`, `google_204`,
+`cloudflare_trace`), `url`, `limiar_lento_ms`, `accept` (opcional),
+`ausencia_404` (opcional, ver [registro ausente](#registro-ausente)) e `ipv4`
+(opcional, 1.7.0+: `true` passa `-4` ao curl; o padrão liga no controle Cloudflare
+porque o PNCP só tem IPv4, e o IP público que interessa é o de IPv4).
 
 ## Classificação de cada medição
 
@@ -160,7 +162,7 @@ Campo `resultado` de cada registro `sonda`:
 
 | Resultado | Quando | Conta como |
 |---|---|---|
-| `ok` | resposta 2xx válida, dentro do limiar | disponível |
+| `ok` | resposta 2xx válida, dentro do limiar; também HTTP **204** num alvo `json_data`/`json_lista` (1.7.0+, `detalhe` = `sem_dados_204`: a API de consulta responde 204 quando a janela não tem registros) | disponível |
 | `lento` | resposta 2xx válida, `total_ms` acima de `limiar_lento_ms` | disponível (e "lenta") |
 | `timeout` | curl estourou o tempo (`timeout_conexao` ou `timeout_resposta` no `detalhe`) | **falha** |
 | `erro_rede` | DNS, conexão recusada/derrubada, TLS, certificado, resposta vazia ou parcial | **falha** |
@@ -344,7 +346,7 @@ content-length) e `desvio_relogio_s` (estimativa: relógio local menos o
 `Date` do servidor). O erro da estimativa é metade da latência, então o campo só
 é gravado quando a resposta levou **menos de 2 s**.
 
-Em **falha ou 429** ainda: `corpo_trecho` (400 primeiros caracteres),
+Em **falha ou 429** ainda: `corpo_trecho` (até 8 KB do corpo desde a 1.7.0; antes 400 caracteres: a causa de um erro Java costuma estar no fim),
 `cabecalhos_completos` (sem cookies/authorization) e `pncp_ts_erro` (o
 `timestamp` que o próprio PNCP escreve no corpo do erro, quando existe).
 Em **sucesso**: `corpo_sha256` (16 primeiros caracteres do hash).
@@ -355,7 +357,10 @@ Em **sucesso**: `corpo_sha256` (16 primeiros caracteres do hash).
 alvo, com `blip` quando a 2ª tentativa passou), `falhas`, `blips`,
 `lentos`, `bloqueios_429`, `registros_ausentes`, `modo` (`normal` ou
 `incidente`), `streak_falha`, `duracao_ms`, `proxima_em_s` (espera até a próxima
-rodada, já descontada a duração desta; `0` se ela passou do intervalo).
+rodada, já descontada a duração desta; `0` se ela passou do intervalo) e, desde a
+1.7.0, `ip_publico` (o IP de saída lido do controle Cloudflare nesta rodada; o PNCP
+não devolve identificador de requisição, então horário UTC + URL + IP é o que
+localiza uma chamada nos logs dele).
 
 ### `tipo: evento`
 
@@ -418,8 +423,9 @@ Página única, imprimível em A4, autocontida (SVG inline, sem dependências):
     são `LIMIARES_ROTULO` em `sonda_relatorio.py` (podem ser recalibrados).
 - **Janelas de incidente** (até 12; o CSV tem todas), **exemplos de falha**
   (o mais recente de cada tipo de falha, até 8, com o trecho da resposta do
-  PNCP; "nenhuma resposta" em timeout/conexão, "resposta vazia" em corpo vazio)
-  e **método**.
+  PNCP; "nenhuma resposta" em timeout/conexão, "resposta vazia" em corpo vazio),
+  **como reproduzir** (1.7.0+: IP público de origem no período e um `curl` por
+  serviço que falhou, com a URL da última falha) e **método**.
 - O campo **Solicitante**, editável direto na página: clique, digite e imprima ou
   salve em PDF. O texto fica no `localStorage` do navegador (chave
   `sonda_pncp_solicitante`), então relatórios seguintes, gerados no mesmo
@@ -437,7 +443,7 @@ executaria como fórmula na máquina de quem abre o anexo.
 |---|---|
 | `1_resumo_diario.csv` | por dia × alvo: sondas, ok, lentas, falhas, 429, disponibilidade %, p50/p95 (ms), falhas por tipo, `Demora > 10 s %`, `Demora > 20 s %`, `Disp. ponderada por tempo %` |
 | `2_janelas_de_incidente.csv` | rodadas em falha unidas quando a distância é ≤ 90 min: início, fim, duração, rodadas, alvos, falhas por tipo, mensagens do PNCP reconhecidas |
-| `3_ocorrencias.csv` | toda medição que não foi ok/lenta (inclui 429, registro ausente e 2ª tentativas), com IP, tempos, trecho do corpo e horário do erro segundo o PNCP |
+| `3_ocorrencias.csv` | toda medição que não foi ok/lenta (inclui 429, registro ausente e 2ª tentativas), com IP, tempos, trecho do corpo e horário do erro segundo o PNCP; desde a 1.7.0, no fim: `URL`, `Cabeçalhos da resposta` (JSON) e `Corpo da resposta (até 8 KB)` |
 | `4_cobertura_diaria.csv` | rodadas registradas × esperadas por dia, **a partir do dia do primeiro registro** (antes disso a sonda não existia). O 1º dia conta desde a 1ª rodada. Como o intervalo é de início a início, uma sonda sem lacuna sai com ~100%; em modo incidente há mais rodadas que o esperado e o valor é limitado a 100% (em logs anteriores à 1.5.0 o período era `duração + intervalo`, e a cobertura saía com ~90–95%) |
 | `5_lacunas.csv` | intervalos sem registro, com o motivo quando conhecido e a `Causa provável` (1.6.0+): PC reiniciado, PC desligado ou suspenso, ou sonda parada com o PC ligado |
 

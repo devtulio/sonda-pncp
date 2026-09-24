@@ -2,6 +2,32 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
+## [1.7.0] — 2026-09-23
+
+Evidência suficiente para quem vai corrigir o PNCP, não só para provar a queda.
+
+### Added
+- `ip_publico` no registro `rodada`: o IP de saída, lido do `ip=` do controle Cloudflare. O PNCP
+  não devolve identificador de requisição; horário UTC + URL + IP é o que acha a chamada nos
+  logs dele.
+- Chave opcional `ipv4` no alvo (passa `-4` ao curl), ligada no controle Cloudflare padrão: o
+  PNCP só tem IPv4, e por IPv6 o trace devolvia um IP que não é o que chega ao PNCP.
+- `3_ocorrencias.csv` ganha no fim `URL`, `Cabeçalhos da resposta` e `Corpo da resposta (até 8 KB)`
+  (antes o CSV tinha só o id do alvo e 200 caracteres do corpo).
+- Seção **Como reproduzir** no resumo HTML: IP(s) público(s) de origem no período e um `curl`
+  por serviço que falhou, com a URL da última falha, User-Agent e Accept da sonda.
+
+### Changed
+- `corpo_trecho` guarda até 8 KB do corpo em falha (era 400 caracteres). O HTTP 422 de
+  contratos de 23/09 tem 2.985 bytes e a causa (`nested exception is
+  org.hibernate.exception.DataException`) estava depois do corte.
+
+### Fixed
+- HTTP 204 num alvo `json_data`/`json_lista` contava como `corpo_invalido`. A API de consulta
+  responde 204 quando a janela não tem registros (medido em 24/09: dia sem contrato = 204);
+  agora é `ok` com `detalhe` `sem_dados_204`. Não afetou as medições até aqui (as janelas dos
+  alvos padrão têm registros), mas uma janela vazia viraria falha falsa.
+
 ## [1.6.1] — 2026-09-23
 
 ### Fixed

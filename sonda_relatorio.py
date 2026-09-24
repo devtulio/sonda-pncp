@@ -6,6 +6,7 @@ encerrar e reabrir a sonda não fragmenta nada. Sem dependências além da bibli
 
 import csv
 import html
+import json
 import math
 import os
 import shutil
@@ -154,11 +155,14 @@ def gerar_relatorio(pasta, dias=7, agora=None):
     linhas = [[_fmt(s["ts_local"]), s["ts_utc"], s["alvo"], s["tentativa"], s["resultado"], s["detalhe"],
                s["http"] or "", s["curl_erro"], s["ip"], s["dns_ms"], s["tcp_ms"], s["tls_ms"], s["ttfb_ms"],
                s["total_ms"], s.get("corpo_trecho", "")[:200].replace("\n", " "), s.get("pncp_ts_erro", ""),
-               s["rodada"]] for s in sondas if s["resultado"] not in OKS]
+               s["rodada"], s.get("url", ""),
+               json.dumps(s.get("cabecalhos_completos") or s.get("cabecalhos") or {}, ensure_ascii=False),
+               s.get("corpo_trecho", "")] for s in sondas if s["resultado"] not in OKS]
     _csv(out / "3_ocorrencias.csv", ["Início (local)", "UTC", "Alvo", "Tentativa", "Resultado", "Detalhe", "HTTP",
                                      "Erro do curl", "IP", "DNS (ms)", "TCP (ms)", "TLS (ms)", "TTFB (ms)",
                                      "Total (ms)", "Trecho do corpo", "Horário do erro segundo o PNCP",
-                                     "Rodada"], linhas)
+                                     "Rodada", "URL", "Cabeçalhos da resposta", "Corpo da resposta (até 8 KB)"],
+         linhas)
 
     # 4) cobertura diária e 5) lacunas (ausência de registro NÃO é disponibilidade)
     por_dia = Counter(r["ts_local"][:10] for r in rodadas)
@@ -380,6 +384,8 @@ td:first-child,th:first-child,.txt{text-align:left}
 td:first-child,.nw{white-space:nowrap}
 tbody tr:nth-child(even) td{background:#fafafa}
 .sem{color:#888}
+.cmd{font:11px Consolas,monospace;background:#f6f6f6;border:1px solid #ddd;padding:8px;white-space:pre-wrap;
+word-break:break-all}
 .id{margin:10px 0}
 .id span{display:inline-block;min-width:22em;border-bottom:1px dashed #888;outline:none}
 .id span:empty::before{content:attr(data-ph);color:#b00;font-weight:600}
@@ -415,6 +421,32 @@ body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 h2{break-after:avoid}
 tr{break-inside:avoid}}
 """
+
+
+def _como_reproduzir(sondas, rodadas, cfg, nomes):
+    """Seção para quem vai corrigir: IP público de origem (o PNCP não devolve ID de requisição, então horário UTC +
+    URL + IP é o que acha a chamada nos logs dele) e um curl por serviço que falhou, com a URL da última falha."""
+    esc = html.escape
+    ips = {}
+    for r in rodadas:
+        if r.get("ip_publico"):
+            ips.setdefault(r["ip_publico"], [r["ts_utc"], r["ts_utc"]])[1] = r["ts_utc"]
+    ultima = {}
+    for s in sondas:
+        if s["resultado"] in FALHAS and s.get("url"):
+            ultima[s["alvo"]] = s
+    if not ips and not ultima:
+        return ""
+    lin_ip = "".join(f"<li><code>{esc(ip)}</code> de {esc(a)} a {esc(b)} (UTC)</li>" for ip, (a, b) in ips.items()) \
+        or "<li>não registrado (logs anteriores à 1.7.0)</li>"
+    cmds = "\n".join(f'# {esc(nomes.get(a, a))} - última falha {esc(s["ts_utc"])}: {esc(s["detalhe"])}\n'
+                     f'curl -sS -v -A "{esc(cfg["user_agent"])}" -H "Accept: application/json" "{esc(s["url"])}"'
+                     for a, s in sorted(ultima.items()))
+    return (f'<h2>Como reproduzir</h2><p class="nota">IP público de origem das consultas (lido do controle Cloudflare, '
+            f'por IPv4, a cada rodada):</p><ul class="nota">{lin_ip}</ul>'
+            f'<p class="nota">O PNCP não devolve identificador de requisição: horário UTC + URL + IP localizam cada '
+            f'chamada nos logs. Todas as ocorrências, com URL, cabeçalhos e corpo da resposta (até 8 KB), estão em '
+            f'3_ocorrencias.csv.</p><pre class="cmd">{cmds}</pre>')
 
 
 def _resumo_html(out, cfg, ini, fim, sondas, rodadas, janelas, n_lacunas, n_rejeitadas=0):
@@ -472,6 +504,7 @@ def _resumo_html(out, cfg, ini, fim, sondas, rodadas, janelas, n_lacunas, n_reje
                   f'<td>{br(s["total_ms"] / 1000, 1)}</td><td class="txt">{resposta(s)}</td></tr>' for s in ex) \
         or '<tr><td colspan="6">Nenhuma falha registrada.</td></tr>'
     grafico = _grafico(sondas, alvos, cfg)
+    reproduzir = _como_reproduzir(sondas, rodadas, cfg, nomes)
     (out / "resumo_para_chamado.html").write_text(f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
 <title>Sonda PNCP - resumo</title><style>{CSS_RESUMO}</style></head><body>
 <h1>Disponibilidade do PNCP - medição independente</h1>
@@ -515,6 +548,7 @@ Controles (Google, Cloudflare) medidos a cada rodada; se ambos caem, a rodada é
 <h2>Exemplos de falha (o mais recente de cada tipo; todas nos CSVs anexos)</h2>
 <table><thead><tr><th>Horário local</th><th class="txt">Serviço</th><th>Tent.</th><th class="txt">Falha</th>
 <th class="nw">Tempo (s)</th><th class="txt">Resposta do PNCP (trecho)</th></tr></thead><tbody>{exs}</tbody></table>
+{reproduzir}
 <h2>Método</h2>
 <p class="nota">Medição com curl.exe a cada {cfg['intervalo_normal_s'] // 60} min (a cada
 {cfg['intervalo_incidente_s']} s durante incidente), de um único ponto de observação, com horário local e UTC em

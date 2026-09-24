@@ -23,11 +23,12 @@ from datetime import datetime, timedelta, UTC
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-VERSAO = "1.6.1"
+VERSAO = "1.7.0"
 FALHAS = {"erro_http", "erro_rede", "timeout", "corpo_invalido"}  # falha do lado do alvo
 OKS = {"ok", "lento"}  # resposta válida (lento = válida, porém acima do limiar)
 # erro_local: problema do LADO da sonda (disco cheio, permissão), não do alvo — fora de FALHAS e OKS,
 # não conta nem como disponibilidade nem como falha confirmada.
+TRECHO_FALHA_BYTES = 8000  # corpo guardado numa falha: a causa de um erro Java costuma estar no FIM da mensagem
 LIMITE_DESVIO_MS = 2000  # `desvio_relogio_s` só é gravado com resposta abaixo disto (ver _registro_sonda)
 FOLGA_VIGIA_S = 900  # rodada mais lenta possível (~8 min com tudo em timeout) + margem, antes do vigia acusar "parada"
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # armadilha: sem isso pisca janela
@@ -43,7 +44,8 @@ ALVOS_PADRAO = [
     {"id": "ctrl_google", "nome": "Controle: Google", "tipo": "controle", "validar": "google_204",
      "url": "https://www.google.com/generate_204", "limiar_lento_ms": 4000, "accept": "*/*"},
     {"id": "ctrl_cloudflare", "nome": "Controle: Cloudflare", "tipo": "controle", "validar": "cloudflare_trace",
-     "url": "https://www.cloudflare.com/cdn-cgi/trace", "limiar_lento_ms": 4000, "accept": "*/*"},
+     "url": "https://www.cloudflare.com/cdn-cgi/trace", "limiar_lento_ms": 4000, "accept": "*/*",
+     "ipv4": True},  # o PNCP só tem IPv4: assim o `ip=` do trace é o IP público com que a sonda chega ao PNCP
     {"id": "portal", "nome": "Portal PNCP", "tipo": "portal", "validar": "html",
      "url": "https://pncp.gov.br/app/", "limiar_lento_ms": 4000, "accept": "text/html"},
     {"id": "api_contratacoes", "nome": "API consulta: contratações", "tipo": "api", "validar": "json_data",
@@ -248,6 +250,8 @@ def _medir_em(tmp, url, alvo, cfg):
            "--connect-timeout", str(cfg["timeout_conexao_s"]), "--max-time", str(cfg["timeout_total_s"]),
            "-A", cfg["user_agent"], "-H", f"Accept: {alvo.get('accept', 'application/json')}",
            "--compressed", "-o", corpo_p, "-D", cab_p, "-w", "%{json}", url]
+    if alvo.get("ipv4"):
+        cmd.insert(1, "-4")
     m = {"url": url, "curl_exit": -1, "curl_erro": "", "http": 0, "http_versao": "", "ip": "",
          "dns_ms": 0, "tcp_ms": 0, "tls_ms": 0, "ttfb_ms": 0, "total_ms": 0, "bytes": 0,
          "_conectou": False, "_corpo": b"", "_cab": {}, "_inicio": datetime.now(UTC)}
@@ -327,6 +331,9 @@ def classificar(m, alvo, cfg):
         return "registro_ausente", "http_404_registro_ausente"
     if not 200 <= h < 300:
         return "erro_http", f"http_{h}"
+    if h == 204 and alvo.get("validar") in ("json_data", "json_lista"):
+        # a API de consulta responde 204 quando a janela não tem registros: é resposta válida, não falha
+        return ("lento" if m["total_ms"] > alvo.get("limiar_lento_ms", 5000) else "ok"), "sem_dados_204"
     if not validar(alvo.get("validar", "status"), m["_corpo"]):
         return "corpo_invalido", "corpo_vazio" if not m["_corpo"] else "corpo_inesperado"
     return ("lento" if m["total_ms"] > alvo.get("limiar_lento_ms", 5000) else "ok"), ""
@@ -494,6 +501,7 @@ class Sonda:
         self.ultimo_wall = None
         self.proximo_esperado_s = self.cfg["intervalo_normal_s"]
         self.ips = {}
+        self.ip_publico = None  # IP de saída da rodada, lido do `ip=` do controle Cloudflare
         self.ausentes = set()
         self._r24 = deque()
         self._dia_compactado = None
@@ -546,7 +554,7 @@ class Sonda:
             except (TypeError, ValueError):
                 pass
         if resultado in FALHAS or resultado == "bloqueio_429":
-            trecho = m["_corpo"][:400].decode("utf-8", "replace")
+            trecho = m["_corpo"][:TRECHO_FALHA_BYTES].decode("utf-8", "replace")
             rec["corpo_trecho"] = trecho
             rec["cabecalhos_completos"] = {k: v for k, v in cab.items()
                                            if k not in ("set-cookie", "cookie", "authorization")}
@@ -586,6 +594,10 @@ class Sonda:
             return None
         self._pulso()
         resultado, detalhe = classificar(m, alvo, self.cfg)
+        if alvo.get("validar") == "cloudflare_trace" and resultado in OKS:
+            ip = re.search(rb"(?m)^ip=([0-9A-Fa-f:.]{3,45})$", m["_corpo"])
+            if ip:
+                self.ip_publico = ip.group(1).decode()
         self.log.escrever(self._registro_sonda(rid, alvo, tentativa, m, resultado, detalhe))
         if m["curl_exit"] == -2 and not self._curl_avisado:  # curl.exe ausente ou bloqueado (Smart App Control, antivírus)
             self._curl_avisado = True
@@ -711,6 +723,7 @@ class Sonda:
         self.n_rodada += 1
         rid = f"{agora.astimezone():%Y%m%dT%H%M%S}-{self.n_rodada}"
         self._checar_lacuna(agora)
+        self.ip_publico = None
         alvos = self.cfg["alvos"]
         controles = [a for a in alvos if a["tipo"] == "controle"]
         pncp = [a for a in alvos if a["tipo"] != "controle"]
@@ -767,6 +780,8 @@ class Sonda:
                "registros_ausentes": ausentes,
                "modo": "incidente" if self.incidente else "normal", "streak_falha": self.streak,
                "duracao_ms": round(duracao_s * 1000), "proxima_em_s": round(espera, 1)}
+        if self.ip_publico:  # para o PNCP achar as chamadas nos logs dele (não devolve ID de requisição)
+            rec["ip_publico"] = self.ip_publico
         self.log.escrever(rec)
         self._r24.append((agora.astimezone(UTC), estado))
         self.ultima = rec

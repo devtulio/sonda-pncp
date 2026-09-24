@@ -218,7 +218,8 @@ class Roteiro:
     def __call__(self, a, cfg):
         tipo = (self.script.get(a["id"]) or ["ok"]).pop(0)
         self.chamadas.append((a["id"], tipo))
-        corpo = {"json_data": b'{"data":[]}', "json_lista": b"[]", "html": HTML.encode()}.get(a["validar"], b"")
+        corpo = {"json_data": b'{"data":[]}', "json_lista": b"[]", "html": HTML.encode(),
+                 "cloudflare_trace": b"fl=1f1\nip=203.0.113.9\nts=1.0\n"}.get(a["validar"], b"")
         m = {"url": "https://exemplo/x", "curl_exit": 0, "curl_erro": "", "http": 200, "http_versao": "2",
              "ip": "1.2.3.4", "dns_ms": 5, "tcp_ms": 10, "tls_ms": 20, "ttfb_ms": 100, "total_ms": 150,
              "bytes": len(corpo), "_conectou": True, "_corpo": corpo, "_cab": {"date": "Sun, 20 Sep 2026 12:00:00 GMT"},
@@ -231,6 +232,8 @@ class Roteiro:
             m.update(http=404, _corpo="Contratação não cadastrada.".encode())
         elif tipo == "rede":
             m.update(curl_exit=56, http=0, _corpo=b"", curl_erro="Recv failure")
+        elif tipo == "grande":  # erro Java longo: a causa fica no fim
+            m.update(http=422, _corpo=b'{"message":"' + b"x" * 20000 + b'"}')
         elif tipo == "lento":
             m.update(total_ms=a["limiar_lento_ms"] + 1000)
         return m
@@ -630,6 +633,58 @@ class TestDispPonderada(unittest.TestCase):
     def test_sem_medicoes_suficientes_fica_vazio(self):
         self.assertEqual(rel._disp_ponderada([self._s("2026-09-21T10:00:00", "ok")]), "")
         self.assertEqual(rel._disp_ponderada([]), "")
+
+
+class TestEvidenciaParaDesenvolvedor(Base):
+    def test_204_da_api_de_consulta_e_ok_sem_dados(self):
+        m = {"curl_exit": 0, "http": 204, "_corpo": b"", "total_ms": 100}
+        a = {"id": "x", "tipo": "api", "validar": "json_data", "limiar_lento_ms": 5000}
+        self.assertEqual(core.classificar(m, a, cfg_teste()), ("ok", "sem_dados_204"))
+        a["validar"] = "html"  # portal com 204 continua sendo corpo inválido
+        self.assertEqual(core.classificar(m, a, cfg_teste())[0], "corpo_invalido")
+
+    def test_rodada_grava_ip_publico_do_trace(self):
+        cfg = cfg_rodada()
+        cfg["alvos"][1]["validar"] = "cloudflare_trace"
+        s = core.Sonda(self.pasta, cfg, medir_fn=Roteiro(self.relogio), agora_fn=self.relogio,
+                       dormir_fn=lambda x: None, notificar_fn=lambda t, m: None)
+        s.rodada()
+        self.assertEqual(self.registros("rodada")[-1]["ip_publico"], "203.0.113.9")
+
+    def test_falha_guarda_ate_8kb_do_corpo(self):
+        self.sonda(api=["grande", "grande"]).rodada()
+        falha = [r for r in self.registros("sonda") if r["alvo"] == "api"][0]
+        self.assertEqual(len(falha["corpo_trecho"]), core.TRECHO_FALHA_BYTES)
+
+    def test_alvo_ipv4_passa_menos_4_ao_curl(self):
+        chamadas = []
+
+        def falso(cmd, **kw):
+            chamadas.append(cmd)
+            return SimpleNamespace(stdout=b"{}", stderr=b"", returncode=0)
+        with mock.patch.object(core.subprocess, "run", falso):
+            core.medir({"url": "https://x/", "ipv4": True}, cfg_teste())
+            core.medir({"url": "https://x/"}, cfg_teste())
+        self.assertIn("-4", chamadas[0])
+        self.assertNotIn("-4", chamadas[1])
+
+    def test_ocorrencias_e_html_trazem_url_cabecalhos_corpo_e_como_reproduzir(self):
+        cfg = cfg_rodada()
+        cfg["alvos"][1]["validar"] = "cloudflare_trace"
+        (self.pasta / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
+        s = core.Sonda(self.pasta, cfg, medir_fn=Roteiro(self.relogio, api=["503", "503"]), agora_fn=self.relogio,
+                       dormir_fn=lambda x: None, notificar_fn=lambda t, m: None)
+        s.rodada()
+        out = rel.gerar_relatorio(self.pasta, 1, agora=self.relogio.t + timedelta(minutes=1))
+        with open(out / "3_ocorrencias.csv", encoding="utf-8-sig", newline="") as f:
+            linhas = list(csv.reader(f, delimiter=";"))
+        self.assertEqual(linhas[0][-3:], ["URL", "Cabeçalhos da resposta", "Corpo da resposta (até 8 KB)"])
+        self.assertEqual(linhas[1][-3], "https://exemplo/x")
+        self.assertIn("banco de dados", linhas[1][-1])
+        h = (out / "resumo_para_chamado.html").read_text(encoding="utf-8")
+        self.assertIn("Como reproduzir", h)
+        self.assertIn("203.0.113.9", h)
+        self.assertIn('curl -sS -v', h)
 
 
 class TestResumoTabelas(Base):

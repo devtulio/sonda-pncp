@@ -35,7 +35,8 @@ CAMPOS DO LOG
   ligado, sem suspensao/hibernacao: a partida usa para dizer se o PC ficou parado na
   lacuna, campos pc_parado_s e pc_reiniciou). Medicao traz IP, HTTP,
   dns_ms/tcp_ms/tls_ms/ttfb_ms/total_ms (tempos acumulados do curl, nao por fase), bytes,
-  hash do corpo (ok) ou trecho de 400 chars + cabecalhos completos (falha).
+  hash do corpo (ok) ou ate 8 KB do corpo + cabecalhos completos (falha). A rodada grava
+  ip_publico (IP de saida, do controle Cloudflare por IPv4).
 
 DOCUMENTACAO
   README.md (visao geral), MANUAL.md (referencia completa), CHANGELOG.md, RELEASING.md.
