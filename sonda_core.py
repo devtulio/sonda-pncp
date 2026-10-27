@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, UTC
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-VERSAO = "1.8.0"
+VERSAO = "1.9.0"
 FALHAS = {"erro_http", "erro_rede", "timeout", "corpo_invalido"}  # falha do lado do alvo
 OKS = {"ok", "lento"}  # resposta válida (lento = válida, porém acima do limiar)
 # erro_local: problema do LADO da sonda (disco cheio, permissão), não do alvo — fora de FALHAS e OKS,
@@ -471,6 +471,19 @@ def _pc_na_lacuna(gap_s, ativo_antes, ativo_agora):
     return {"pc_reiniciou": False, "pc_parado_s": round(max(0.0, gap_s - (ativo_agora - ativo_antes)))}
 
 
+def ritmo_motor_idade_s():
+    """Segundos desde a última requisição de OUTRO programa desta máquina que usa o `motor_pncp` (sync do Licitarium
+    etc.), pela data de modificação dos arquivos de ritmo que o motor grava em `~/.motor_pncp/` (ou em
+    `MOTOR_PNCP_RITMO`) a cada requisição. Só a data do arquivo: o formato é interno do motor. None se o motor
+    nunca rodou aqui. A sonda não usa o motor; isto só ajuda a dizer se um 429 veio com tráfego alheio no mesmo IP."""
+    pasta = Path(os.environ.get("MOTOR_PNCP_RITMO") or Path.home() / ".motor_pncp")
+    try:
+        ultimo = max(f.stat().st_mtime for f in pasta.glob("ritmo-pncp.gov.br*.lock"))
+    except (OSError, ValueError):  # pasta ausente ou sem arquivo (max de vazio)
+        return None
+    return round(max(0.0, datetime.now().timestamp() - ultimo), 1)
+
+
 def uptime_pc_s():
     """Segundos desde o boot do Windows (GetTickCount64); None fora do Windows ou se a chamada falhar.
     CONTA o tempo desligado com a Inicialização Rápida (é hibernação): para saber se o PC ficou parado numa
@@ -564,6 +577,10 @@ class Sonda:
         if resultado in FALHAS or resultado == "bloqueio_429":
             trecho = m["_corpo"][:TRECHO_FALHA_BYTES].decode("utf-8", "replace")
             rec["corpo_trecho"] = trecho
+            if resultado == "bloqueio_429":
+                idade = ritmo_motor_idade_s()
+                if idade is not None:  # 1.9.0: há quanto tempo o motor_pncp (outro programa) fez a última requisição
+                    rec["motor_ritmo_idade_s"] = idade
             sid = re.search(r"Support ID[^0-9]{0,60}(\d{10,})", trecho)
             if sid:  # a página do WAF (F5) do PNCP traz o identificador que o suporte pede ao reclamar
                 rec["support_id"] = sid.group(1)

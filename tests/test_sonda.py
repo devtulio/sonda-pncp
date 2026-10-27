@@ -2,6 +2,7 @@
 
 import csv
 import json
+import os
 import socket
 import sys
 import tempfile
@@ -18,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import sonda_core as core  # noqa: E402
 import sonda_relatorio as rel  # noqa: E402
 
+RITMO_ORIGINAL = core.ritmo_motor_idade_s  # o Base troca por um stub; os testes de unidade usam a função real
 HTML = "<html>" + "x" * 3000 + "</html>"
 PORT = None
 SERVIDOR = None
@@ -267,6 +269,10 @@ class Base(unittest.TestCase):
         relogio_falso = mock.patch.object(core, "time", SimpleNamespace(monotonic=lambda: self.mono[0]))
         relogio_falso.start()
         self.addCleanup(relogio_falso.stop)
+        # os testes não olham a pasta ~/.motor_pncp real desta máquina (o sync do Licitarium pode estar rodando)
+        sem_motor = mock.patch.object(core, "ritmo_motor_idade_s", return_value=None)
+        sem_motor.start()
+        self.addCleanup(sem_motor.stop)
 
     def avancando(self):
         """dormir_fn que faz o tempo (monotônico falso) passar: a rodada dura a soma das suas esperas."""
@@ -640,6 +646,42 @@ class TestDispPonderada(unittest.TestCase):
         self.assertEqual(rel._disp_ponderada([]), "")
 
 
+class TestRitmoDoMotor(Base):
+    """1.9.0: registrar em cada 429 se o motor_pncp (outro programa) estava requisitando no mesmo IP."""
+
+    def test_idade_pela_data_do_arquivo_de_ritmo(self):
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.dict(os.environ, {"MOTOR_PNCP_RITMO": d}):
+                self.assertIsNone(RITMO_ORIGINAL())  # pasta sem arquivo de ritmo
+                arq = Path(d) / "ritmo-pncp.gov.br_api_consulta.lock"
+                arq.write_bytes(b"x")
+                agora = time.time()
+                os.utime(arq, (agora - 7, agora - 7))
+                self.assertAlmostEqual(RITMO_ORIGINAL(), 7, delta=1.5)
+            with mock.patch.dict(os.environ, {"MOTOR_PNCP_RITMO": str(Path(d) / "nao-existe")}):
+                self.assertIsNone(RITMO_ORIGINAL())  # o motor nunca rodou nesta máquina
+
+    def test_429_grava_a_idade_e_outras_falhas_nao(self):
+        with mock.patch.object(core, "ritmo_motor_idade_s", return_value=2.5):
+            self.sonda(portal=["429"], api=["503", "503"]).rodada()
+        sondas = self.registros("sonda")
+        self.assertEqual([r["motor_ritmo_idade_s"] for r in sondas if r["http"] == 429], [2.5])
+        self.assertFalse([r for r in sondas if r["http"] == 503 and "motor_ritmo_idade_s" in r])
+
+    def test_429_sem_motor_nao_grava_o_campo(self):
+        self.sonda(portal=["429"]).rodada()  # o Base deixa ritmo_motor_idade_s = None
+        self.assertNotIn("motor_ritmo_idade_s", [r for r in self.registros("sonda") if r["http"] == 429][0])
+
+    def test_csv_de_ocorrencias_traz_a_idade_no_fim(self):
+        with mock.patch.object(core, "ritmo_motor_idade_s", return_value=2.5):
+            self.sonda(portal=["429"]).rodada()
+        out = rel.gerar_relatorio(self.pasta, 1, agora=self.relogio.t + timedelta(minutes=5))
+        with open(out / "3_ocorrencias.csv", encoding="utf-8-sig", newline="") as f:
+            linhas = list(csv.reader(f, delimiter=";"))
+        self.assertEqual(linhas[0][-1], "Idade do ritmo do motor (s)")
+        self.assertEqual(linhas[1][-1], "2.5")
+
+
 class TestLimitesDoPNCP(Base):
     """Resposta do PNCP (chamado 62174410): Consulta 5 req/15 s por IP, bloqueio de 40 s; pedem parar ao ver 429."""
 
@@ -695,8 +737,8 @@ class TestLimitesDoPNCP(Base):
         out = rel.gerar_relatorio(self.pasta, 1, agora=self.relogio.t + timedelta(minutes=5))
         with open(out / "3_ocorrencias.csv", encoding="utf-8-sig", newline="") as f:
             linhas = list(csv.reader(f, delimiter=";"))
-        self.assertEqual(linhas[0][-1], "Support ID")
-        self.assertEqual(linhas[1][-1], "14140211415192252686")
+        self.assertEqual(linhas[0][-2], "Support ID")
+        self.assertEqual(linhas[1][-2], "14140211415192252686")
 
 
 class TestEvidenciaParaDesenvolvedor(Base):
@@ -742,9 +784,9 @@ class TestEvidenciaParaDesenvolvedor(Base):
         out = rel.gerar_relatorio(self.pasta, 1, agora=self.relogio.t + timedelta(minutes=1))
         with open(out / "3_ocorrencias.csv", encoding="utf-8-sig", newline="") as f:
             linhas = list(csv.reader(f, delimiter=";"))
-        self.assertEqual(linhas[0][-4:-1], ["URL", "Cabeçalhos da resposta", "Corpo da resposta (até 8 KB)"])
-        self.assertEqual(linhas[1][-4], "https://exemplo/x")
-        self.assertIn("banco de dados", linhas[1][-2])
+        self.assertEqual(linhas[0][-5:-2], ["URL", "Cabeçalhos da resposta", "Corpo da resposta (até 8 KB)"])
+        self.assertEqual(linhas[1][-5], "https://exemplo/x")
+        self.assertIn("banco de dados", linhas[1][-3])
         h = (out / "resumo_para_chamado.html").read_text(encoding="utf-8")
         self.assertIn("Como reproduzir", h)
         self.assertIn("203.0.113.9", h)

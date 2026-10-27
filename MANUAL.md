@@ -350,7 +350,7 @@ content-length) e `desvio_relogio_s` (estimativa: relógio local menos o
 é gravado quando a resposta levou **menos de 2 s**.
 
 Em **falha ou 429** ainda: `corpo_trecho` (até 8 KB do corpo desde a 1.7.0; antes 400 caracteres: a causa de um erro Java costuma estar no fim),
-`cabecalhos_completos` (sem cookies/authorization), `support_id` (1.8.0+: o "Support ID" da página do WAF do PNCP, que o suporte pede ao reclamar) e `pncp_ts_erro` (o
+`cabecalhos_completos` (sem cookies/authorization), `support_id` (1.8.0+: o "Support ID" da página do WAF do PNCP, que o suporte pede ao reclamar), `motor_ritmo_idade_s` (1.9.0+, só em HTTP 429: segundos desde a última requisição de outro programa desta máquina que usa o `motor_pncp`, lida pela data dos arquivos `~/.motor_pncp/ritmo-pncp.gov.br*.lock`; ausente se o motor nunca rodou aqui) e `pncp_ts_erro` (o
 `timestamp` que o próprio PNCP escreve no corpo do erro, quando existe).
 Em **sucesso**: `corpo_sha256` (16 primeiros caracteres do hash).
 
@@ -498,7 +498,11 @@ Desde a 1.8.0 a sonda: faz no máximo `consulta_max_chamadas` (3) chamadas à Co
 cada `consulta_janela_s` (15 s), contando as repetições; depois de um 429 espera
 `pausa_apos_429_s` (40 s) antes de chamar a Consulta de novo e grava o evento
 `pausa_apos_429`; e guarda o `support_id` de cada 429 (coluna *Support ID* de
-`3_ocorrencias.csv`). O alvo `api_itens` e o portal não passam por esse limitador (o
+`3_ocorrencias.csv`); em cada 429 também grava `motor_ritmo_idade_s` (coluna *Idade do
+ritmo do motor (s)*), que diz se outro programa da máquina (o sync do Licitarium, por
+exemplo, via `motor_pncp`) estava requisitando o PNCP no mesmo IP: poucos segundos =
+tráfego alheio na mesma hora. A sonda não usa o motor e não se coordena com ele. O alvo
+`api_itens` e o portal não passam por esse limitador (o
 primeiro é da API de Integração; a API de Consulta não tem endpoint de itens).
 
 ## Limitações

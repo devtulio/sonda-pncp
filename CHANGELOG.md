@@ -2,6 +2,19 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
+## [1.9.0] — 2026-10-27
+
+### Added
+- Campo `motor_ritmo_idade_s` nos registros `sonda` de HTTP 429 e coluna `Idade do ritmo do motor (s)` no fim
+  de `3_ocorrencias.csv`: segundos desde a última requisição de outro programa desta máquina que usa o
+  `motor_pncp` (sync do Licitarium Free/EX), lida só pela data de modificação dos arquivos
+  `~/.motor_pncp/ritmo-pncp.gov.br*.lock` (ou `MOTOR_PNCP_RITMO`); o formato interno do motor não é lido.
+  Ausente se o motor nunca rodou na máquina. Motivo: o PNCP limita por IP e a sonda não usa o motor, então não
+  vê o tráfego do sync. Cruzando os 188 HTTP 429 de 22/09-27/10 com o histórico de sincronizações do EX, 77%
+  caíram dentro de um bloco de sync, que cobre 28% das chamadas da sonda (0,83% de 429 por chamada com sync
+  contra 0,10% sem; 3,7% contra 0,6% desde 22/10): associação forte; este campo confirma ou descarta a
+  hipótese daqui para frente e mede o efeito do ritmo coordenado do `motor_pncp` 1.8.0.
+
 ## [1.8.0] — 2026-10-27
 
 Resposta do PNCP ao chamado 62174410 (limites de requisição, sem bloqueio de IP, recomendações de uso

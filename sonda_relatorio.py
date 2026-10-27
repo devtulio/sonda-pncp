@@ -157,11 +157,13 @@ def gerar_relatorio(pasta, dias=7, agora=None):
                s["total_ms"], s.get("corpo_trecho", "")[:200].replace("\n", " "), s.get("pncp_ts_erro", ""),
                s["rodada"], s.get("url", ""),
                json.dumps(s.get("cabecalhos_completos") or s.get("cabecalhos") or {}, ensure_ascii=False),
-               s.get("corpo_trecho", ""), s.get("support_id", "")] for s in sondas if s["resultado"] not in OKS]
+               s.get("corpo_trecho", ""), s.get("support_id", ""),
+               s.get("motor_ritmo_idade_s", "")] for s in sondas if s["resultado"] not in OKS]
     _csv(out / "3_ocorrencias.csv", ["Início (local)", "UTC", "Alvo", "Tentativa", "Resultado", "Detalhe", "HTTP",
                                      "Erro do curl", "IP", "DNS (ms)", "TCP (ms)", "TLS (ms)", "TTFB (ms)",
                                      "Total (ms)", "Trecho do corpo", "Horário do erro segundo o PNCP",
-                                     "Rodada", "URL", "Cabeçalhos da resposta", "Corpo da resposta (até 8 KB)", "Support ID"],
+                                     "Rodada", "URL", "Cabeçalhos da resposta", "Corpo da resposta (até 8 KB)", "Support ID",
+                                     "Idade do ritmo do motor (s)"],
          linhas)
 
     # 4) cobertura diária e 5) lacunas (ausência de registro NÃO é disponibilidade)
