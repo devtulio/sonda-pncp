@@ -20,6 +20,10 @@ da API): a sonda passa a respeitá-los com margem e a guardar o que o suporte pe
   `Support ID` no fim de `3_ocorrencias.csv`; o resumo HTML conta quantos 429 trazem o identificador.
 - Seção "Limites do PNCP e o que a sonda faz" no MANUAL, com os limites informados.
 
+### Security
+- Pillow 12.3.0 → 13.0.0 (`requirements.txt`): o `pip-audit` do CI passou a acusar 38 vulnerabilidades conhecidas
+  na 12.3.0, todas corrigidas na 13.0.0. Usado só para desenhar o ícone da bandeja (verificado com a bandeja real).
+
 ### Fixed (testes; sem efeito na sonda)
 - O relógio falso dos testes é de 18/09/2026 e a retenção padrão (30 dias) fazia a sonda compactar e apagar o
   log de teste quando o dia real passou de 18/10: 10 testes passaram a falhar em 27/10. `cfg_teste` agora
