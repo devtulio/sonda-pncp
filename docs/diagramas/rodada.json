@@ -54,7 +54,7 @@
   ],
   "cards": [
     { "dot": "cyan", "title": "Antes de acusar", "items": ["Os 2 controles medem a sua internet primeiro", "Se os 2 caem, os alvos do PNCP nem são medidos"] },
-    { "dot": "amber", "title": "Falha ou limitação", "items": ["Falha repete 1 vez após 10 s: blip se passar", "HTTP 429 é limitação do WAF: não repete nem conta como queda"] },
+    { "dot": "amber", "title": "Falha ou limitação", "items": ["Falha repete 1 vez após 10 s: blip se passar", "HTTP 429 é limitação do WAF: não repete, não conta como queda e pausa a Consulta por 40 s"] },
     { "dot": "emerald", "title": "Estado", "items": ["Ícone vermelho após 2 rodadas seguidas em falha", "Modo incidente sai após 3 rodadas sem falha"] }
   ]
 }

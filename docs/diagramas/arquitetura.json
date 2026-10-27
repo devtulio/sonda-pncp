@@ -233,7 +233,7 @@
       "items": [
         "2 controles + 6 alvos do PNCP a cada rodada",
         "Falha repete após 10 s: blip ou falha confirmada",
-        "HTTP 429 é limitação do WAF, não queda"
+        "HTTP 429 é limitação: pausa 40 s, não é queda"
       ]
     },
     {
@@ -241,7 +241,7 @@
       "title": "Registro",
       "items": [
         "Um log JSONL por dia, hora local e UTC",
-        "Falha guarda IP, cabeçalhos e trecho do corpo",
+        "Falha guarda IP, cabeçalhos, 8 KB do corpo e Support ID",
         "Lacuna diz se o PC parou ou a sonda caiu"
       ]
     },

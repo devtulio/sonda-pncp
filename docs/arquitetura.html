@@ -5550,7 +5550,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <ul>
           <li>&bull; 2 controles + 6 alvos do PNCP a cada rodada</li>
           <li>&bull; Falha repete após 10 s: blip ou falha confirmada</li>
-          <li>&bull; HTTP 429 é limitação do WAF, não queda</li>
+          <li>&bull; HTTP 429 é limitação: pausa 40 s, não é queda</li>
         </ul>
       </div>
 
@@ -5561,7 +5561,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </div>
         <ul>
           <li>&bull; Um log JSONL por dia, hora local e UTC</li>
-          <li>&bull; Falha guarda IP, cabeçalhos e trecho do corpo</li>
+          <li>&bull; Falha guarda IP, cabeçalhos, 8 KB do corpo e Support ID</li>
           <li>&bull; Lacuna diz se o PC parou ou a sonda caiu</li>
         </ul>
       </div>

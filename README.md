@@ -76,7 +76,8 @@ fragmenta nada:
 
 Disponibilidade = (ok + lentas) / (ok + lentas + falhas), 1ª tentativa de
 cada medição. HTTP 429 é limitação do WAF, **não queda**: fica fora da
-conta e nunca acelera a sondagem. Detalhes em [MANUAL.md](MANUAL.md#relatório).
+conta, nunca acelera a sondagem e faz a sonda esperar 40 s antes de chamar a API
+de Consulta de novo. Detalhes em [MANUAL.md](MANUAL.md#relatório).
 
 ## Instalação
 
@@ -117,8 +118,15 @@ classificação de erros, máquina de estados, lacunas, relatório).
   desligado ou suspenso (inclusive o "Desligar" com Inicialização Rápida),
   PC reiniciado ou sonda parada com o PC ligado.
 - **Evidência completa na falha.** Falha grava IP, cabeçalhos completos,
-  trecho do corpo e o horário do erro segundo o próprio PNCP; sucesso
-  grava só o hash do corpo.
+  até 8 KB do corpo (a causa de um erro Java costuma estar no fim), o
+  Support ID do WAF e o horário do erro segundo o próprio PNCP; sucesso
+  grava só o hash do corpo. O relatório traz a URL de cada ocorrência, o IP
+  público de origem e um `curl` para reproduzir: o PNCP não devolve ID de
+  requisição, então horário UTC + URL + IP é o que acha a chamada nos logs deles.
+- **Educada com o PNCP.** O PNCP limita por IP (5 requisições a cada 15 s na classe mais restrita da API de
+  Consulta, bloqueio de 40 s). A sonda faz no máximo 3 chamadas a cada 15 s à Consulta, em sequência, e
+  em cada 429 grava o Support ID e há quanto tempo outro programa da máquina (o `motor_pncp`) requisitou
+  o PNCP: o limite soma todo o tráfego do mesmo IP. Ver [MANUAL.md](MANUAL.md#limites-do-pncp-e-o-que-a-sonda-faz).
 - **A sonda não morre calada.** Erro interno vira evento no log e linha em
   `logs/sonda-erros.log` (que vai primeiro: é o que sobra quando o log é o
   problema); o laço continua, e um vigia na bandeja pinta o ícone de vermelho
