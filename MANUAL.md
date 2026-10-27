@@ -502,7 +502,9 @@ cada `consulta_janela_s` (15 s), contando as repetições; depois de um 429 espe
 `3_ocorrencias.csv`); em cada 429 também grava `motor_ritmo_idade_s` (coluna *Idade do
 ritmo do motor (s)*), que diz se outro programa da máquina (o sync do Licitarium, por
 exemplo, via `motor_pncp`) estava requisitando o PNCP no mesmo IP: poucos segundos =
-tráfego alheio na mesma hora. A sonda não usa o motor e não se coordena com ele. O alvo
+tráfego alheio na mesma hora. A sonda não usa o motor e não se coordena com ele. Ponto cego: um programa
+que rode com a pasta de usuário isolada (app empacotado, por exemplo) grava os arquivos de ritmo noutro lugar
+e não aparece nesse campo, embora seja tráfego real ao PNCP. O alvo
 `api_itens` e o portal não passam por esse limitador (o
 primeiro é da API de Integração; a API de Consulta não tem endpoint de itens).
 
