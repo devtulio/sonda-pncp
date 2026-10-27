@@ -21,6 +21,7 @@ Regras completas em [RELEASING.md](RELEASING.md).
 - [Relatório](#relatório)
 - [Notificações](#notificações)
 - [Como ler os números](#como-ler-os-números)
+- [Limites do PNCP e o que a sonda faz](#limites-do-pncp-e-o-que-a-sonda-faz)
 - [Limitações](#limitações)
 - [Armadilhas e solução de problemas](#armadilhas-e-solução-de-problemas)
 - [Testes](#testes)
@@ -557,7 +558,7 @@ primeiro é da API de Integração; a API de Consulta não tem endpoint de itens
 .venv\Scripts\python.exe -m unittest discover -s tests
 ```
 
-82 testes: a medição usa o `curl.exe` de verdade contra um servidor HTTP
+118 testes: a medição usa o `curl.exe` de verdade contra um servidor HTTP
 falso local (200, 204, 429, 503, 404, timeout, corpo inválido, conexão
 derrubada/recusada/DNS); a máquina de estados, as lacunas, o encerramento
 no meio da rodada, o registro ausente e o relatório rodam com relógio e

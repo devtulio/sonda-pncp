@@ -17,8 +17,9 @@ O QUE MEDE
   2 controles (Google, Cloudflare) + 6 alvos PNCP: portal, api_contratacoes, api_contratos,
   api_atas, api_pca, api_itens. Rodada a cada 5 min; 60 s em incidente (sai apos 3 rodadas
   sem falha). Falha = erro HTTP, erro de rede, timeout ou corpo invalido; repete 1x apos 10 s
-  (se a 2a passa = "blip", conta como degradado). HTTP 429 = limitacao (WAF), nao e queda e
-  nunca acelera a sondagem. Se os 2 controles falham = "sem_rede": nao conta como falha do PNCP.
+  (se a 2a passa = "blip", conta como degradado). HTTP 429 = limitacao (WAF), nao e queda,
+  nunca acelera a sondagem e faz a API de Consulta esperar 40 s (maximo de 3 chamadas a ela a cada
+  15 s: o PNCP limita por IP). Se os 2 controles falham = "sem_rede": nao conta como falha do PNCP.
 
 ARQUIVOS
   logs\sonda-AAAA-MM-DD.jsonl   um por dia (hora local); >30 dias viram .gz

@@ -98,7 +98,7 @@ Para medir o **seu** órgão em vez do de teste, troque `cnpj_teste` e
 `compra_teste` no `config.json` (o [MANUAL](MANUAL.md#órgão-e-compra-de-teste)
 mostra como achar uma compra).
 
-Testes: `.venv\Scripts\python.exe -m unittest discover -s tests` (82
+Testes: `.venv\Scripts\python.exe -m unittest discover -s tests` (118
 testes — medição real via `curl.exe` contra servidor HTTP falso,
 classificação de erros, máquina de estados, lacunas, relatório).
 
