@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, UTC
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-VERSAO = "1.7.0"
+VERSAO = "1.8.0"
 FALHAS = {"erro_http", "erro_rede", "timeout", "corpo_invalido"}  # falha do lado do alvo
 OKS = {"ok", "lento"}  # resposta válida (lento = válida, porém acima do limiar)
 # erro_local: problema do LADO da sonda (disco cheio, permissão), não do alvo — fora de FALHAS e OKS,
@@ -76,6 +76,12 @@ CONFIG_PADRAO = {
     "falhas_seguidas_para_vermelho": 2,
     "limite_lacuna_x_intervalo": 2.5,
     "retencao_compactar_dias": 30,
+    # limites do PNCP para a API de Consulta (resposta do chamado 62174410: 5 req/15 s na classe mais restrita,
+    # bloqueio de 40 s; o limite é por IP, e outros programas na mesma rede somam): a sonda fica abaixo e para ao
+    # receber um 429
+    "consulta_max_chamadas": 3,
+    "consulta_janela_s": 15,
+    "pausa_apos_429_s": 40,
     "notificar": True,
     "iniciar_com_windows": True,
     "porta_instancia": 48650,
@@ -96,7 +102,7 @@ MINIMOS_NUMERICOS = {  # chave -> valor mínimo aceito (0 em intervalo faria a s
     "intervalo_normal_s": 1, "intervalo_incidente_s": 1, "espera_entre_alvos_s": 0, "timeout_conexao_s": 1,
     "timeout_total_s": 1, "retry_apos_falha_s": 0, "rodadas_sem_falha_para_sair_incidente": 1,
     "falhas_seguidas_para_vermelho": 1, "limite_lacuna_x_intervalo": 1, "retencao_compactar_dias": 1,
-    "porta_instancia": 1}
+    "porta_instancia": 1, "consulta_max_chamadas": 1, "consulta_janela_s": 1, "pausa_apos_429_s": 0}
 TIPOS_ALVO = ("controle", "portal", "api")
 
 
@@ -501,6 +507,8 @@ class Sonda:
         self.ultimo_wall = None
         self.proximo_esperado_s = self.cfg["intervalo_normal_s"]
         self.ips = {}
+        self._consulta_chamadas = deque(maxlen=int(self.cfg.get("consulta_max_chamadas", 3)))  # início de cada chamada
+        self._bloqueio_429_ate = 0.0  # time.monotonic() até o qual a API de Consulta fica em paz
         self.ip_publico = None  # IP de saída da rodada, lido do `ip=` do controle Cloudflare
         self.ausentes = set()
         self._r24 = deque()
@@ -556,6 +564,9 @@ class Sonda:
         if resultado in FALHAS or resultado == "bloqueio_429":
             trecho = m["_corpo"][:TRECHO_FALHA_BYTES].decode("utf-8", "replace")
             rec["corpo_trecho"] = trecho
+            sid = re.search(r"Support ID[^0-9]{0,60}(\d{10,})", trecho)
+            if sid:  # a página do WAF (F5) do PNCP traz o identificador que o suporte pede ao reclamar
+                rec["support_id"] = sid.group(1)
             rec["cabecalhos_completos"] = {k: v for k, v in cab.items()
                                            if k not in ("set-cookie", "cookie", "authorization")}
             ts_pncp = re.search(r'"timestamp"\s*:\s*"([^"]+)"', m["_corpo"][:2000].decode("utf-8", "replace"))
@@ -582,9 +593,26 @@ class Sonda:
             if self.cfg["notificar"]:
                 self._avisar("Sonda PNCP: alvo não medido", f"{alvo['nome']}: erro interno (ver sonda-erros.log).")
 
+    def _esperar_limite_consulta(self):
+        """Antes de cada chamada à API de Consulta: respeita a pausa de um 429 anterior e o máximo de chamadas por
+        janela (a conta inclui as repetições após falha: todas passam por aqui)."""
+        agora = time.monotonic()
+        espera = self._bloqueio_429_ate - agora
+        q = self._consulta_chamadas
+        if len(q) == q.maxlen:
+            espera = max(espera, float(self.cfg.get("consulta_janela_s", 15)) - (agora - q[0]))
+        if espera > 0:
+            self.dormir(espera)
+        q.append(time.monotonic())
+
     def _medir_alvo(self, alvo, rid, tentativa):
         """Devolve o resultado, ou None se o alvo não pôde ser medido (erro interno) ou se a sonda está encerrando
         (medição em andamento no encerramento é descartada: nada pode ser gravado depois de `sonda_encerrada`)."""
+        consulta = "/api/consulta/" in alvo["url"]
+        if consulta:
+            self._esperar_limite_consulta()
+            if self.parar.is_set():
+                return None
         try:
             m = self.medir(alvo, self.cfg)
         except Exception as e:  # noqa: BLE001 - um alvo com defeito não pode derrubar a rodada dos outros
@@ -594,6 +622,10 @@ class Sonda:
             return None
         self._pulso()
         resultado, detalhe = classificar(m, alvo, self.cfg)
+        if consulta and resultado == "bloqueio_429":
+            pausa = float(self.cfg.get("pausa_apos_429_s", 40))
+            self._bloqueio_429_ate = time.monotonic() + pausa
+            self.evento("pausa_apos_429", alvo=alvo["id"], pausa_s=pausa)
         if alvo.get("validar") == "cloudflare_trace" and resultado in OKS:
             ip = re.search(rb"(?m)^ip=([0-9A-Fa-f:.]{3,45})$", m["_corpo"])
             if ip:

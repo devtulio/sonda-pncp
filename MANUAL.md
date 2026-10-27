@@ -286,6 +286,9 @@ um `config.json` que já existe: edite o arquivo.
 | `falhas_seguidas_para_vermelho` | `2` | Rodadas em falha seguidas para o ícone ficar vermelho. |
 | `limite_lacuna_x_intervalo` | `2.5` | Uma pausa maior que isto × intervalo (+ timeout) é registrada como lacuna. |
 | `retencao_compactar_dias` | `30` | Logs mais velhos viram `.gz` (nada é apagado). |
+| `consulta_max_chamadas` | `3` | Máximo de chamadas à API de Consulta do PNCP (`/api/consulta/`) por janela de `consulta_janela_s` (1.8.0+). A conta inclui as repetições após falha. |
+| `consulta_janela_s` | `15` | Janela, em segundos, do limite acima. O PNCP informou 5 requisições a cada 15 s na classe mais restrita, por IP; a sonda fica abaixo para sobrar margem a outros programas na mesma rede. |
+| `pausa_apos_429_s` | `40` | Depois de um HTTP 429 da API de Consulta, as chamadas seguintes a ela esperam isto (o bloqueio informado pelo PNCP é de 40 s na classe mais restrita). |
 | `notificar` | `true` | Liga as notificações do Windows. |
 | `iniciar_com_windows` | `true` | Cria o atalho de início automático na 1ª execução. |
 | `porta_instancia` | `48650` | Porta loopback da instância única. |
@@ -347,7 +350,7 @@ content-length) e `desvio_relogio_s` (estimativa: relógio local menos o
 é gravado quando a resposta levou **menos de 2 s**.
 
 Em **falha ou 429** ainda: `corpo_trecho` (até 8 KB do corpo desde a 1.7.0; antes 400 caracteres: a causa de um erro Java costuma estar no fim),
-`cabecalhos_completos` (sem cookies/authorization) e `pncp_ts_erro` (o
+`cabecalhos_completos` (sem cookies/authorization), `support_id` (1.8.0+: o "Support ID" da página do WAF do PNCP, que o suporte pede ao reclamar) e `pncp_ts_erro` (o
 `timestamp` que o próprio PNCP escreve no corpo do erro, quando existe).
 Em **sucesso**: `corpo_sha256` (16 primeiros caracteres do hash).
 
@@ -373,6 +376,7 @@ localiza uma chamada nos logs dele).
 | `retomada_apos_lacuna` | intervalo entre rodadas muito maior que o esperado | `lacuna_s`, `desde`, `motivo` (`pausa_manual` ou `suspensao_ou_indisponibilidade`) |
 | `pausada` / `retomada_manual` | menu *Pausar sonda* | — |
 | `registro_ausente` | primeira ocorrência de [registro ausente](#registro-ausente) | `alvo`, `url` |
+| `pausa_apos_429` | HTTP 429 da API de Consulta (1.8.0+) | `alvo`, `pausa_s` |
 | `erro_interno` | exceção dentro da sonda | `erro`, `traceback` |
 
 `encerramento_anterior_limpo: false` no início significa que o último
@@ -480,6 +484,22 @@ derrubar a sonda. O toast mostra só a primeira linha da mensagem.
 - **Um ponto de observação.** Um problema na sua rede ou no seu provedor
   para o PNCP específico não é distinguível de um problema do PNCP; os
   controles cobrem só a queda geral de internet.
+
+## Limites do PNCP e o que a sonda faz
+
+Resposta oficial do PNCP (chamado 62174410, 27/10/2026), por IP de origem: API de
+Consulta, classe mais restrita, 5 requisições a cada 15 s (bloqueio de 40 s); classe
+intermediária, 5 a cada 5 s (20 s); classe geral, 50 a cada 10 s (10 s); API de
+Integração, 150 a cada 10 s (5 s). A classe de cada endpoint não é informada, e os
+limites somam todo o tráfego do mesmo IP (outros programas na mesma rede contam).
+Eles pedem chamadas em sequência, espaçadas, e parar ao receber 429.
+
+Desde a 1.8.0 a sonda: faz no máximo `consulta_max_chamadas` (3) chamadas à Consulta a
+cada `consulta_janela_s` (15 s), contando as repetições; depois de um 429 espera
+`pausa_apos_429_s` (40 s) antes de chamar a Consulta de novo e grava o evento
+`pausa_apos_429`; e guarda o `support_id` de cada 429 (coluna *Support ID* de
+`3_ocorrencias.csv`). O alvo `api_itens` e o portal não passam por esse limitador (o
+primeiro é da API de Integração; a API de Consulta não tem endpoint de itens).
 
 ## Limitações
 

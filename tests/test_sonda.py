@@ -83,7 +83,9 @@ def tearDownModule():
 
 def cfg_teste(**extra):
     c = json.loads(json.dumps(core.CONFIG_PADRAO))
-    c.update({"timeout_total_s": 3, "timeout_conexao_s": 2, "notificar": True, **extra})
+    # retenção enorme: o relógio falso dos testes é de 18/09/2026, e com os 30 dias do padrão a sonda compactava (e
+    # apagava) o log de teste assim que o dia real passasse de 18/10 (quebrou 10 testes em 27/10/2026)
+    c.update({"timeout_total_s": 3, "timeout_conexao_s": 2, "notificar": True, "retencao_compactar_dias": 36500, **extra})
     return c
 
 
@@ -228,6 +230,9 @@ class Roteiro:
             m.update(http=503, _corpo='{"message":"Erro na comunicação com o banco de dados."}'.encode())
         elif tipo == "429":
             m.update(http=429, _corpo=b"")
+        elif tipo == "429f5":  # página do WAF (F5) do PNCP, com o Support ID
+            m.update(http=429, _corpo=b"<html><head><title>Limite de Requisicoes Excedido</title></head><body>"
+                                      b"<p>Seu Support ID e: <strong><14140211415192252686></strong></p></body></html>")
         elif tipo == "ausente":
             m.update(http=404, _corpo="Contratação não cadastrada.".encode())
         elif tipo == "rede":
@@ -635,6 +640,65 @@ class TestDispPonderada(unittest.TestCase):
         self.assertEqual(rel._disp_ponderada([]), "")
 
 
+class TestLimitesDoPNCP(Base):
+    """Resposta do PNCP (chamado 62174410): Consulta 5 req/15 s por IP, bloqueio de 40 s; pedem parar ao ver 429."""
+
+    def sonda_consulta(self, max_chamadas=3, **script):
+        cfg = cfg_rodada()
+        cfg["consulta_max_chamadas"] = max_chamadas
+        for a in cfg["alvos"]:
+            if a["tipo"] == "api":  # o portal (/app/) e os controles não passam pelo limitador da Consulta
+                a["url"] = f"https://pncp.gov.br/api/consulta/v1/{a['id']}"
+        cfg["alvos"].append({"id": "api2", "nome": "api2", "tipo": "api", "validar": "json_data", "limiar_lento_ms": 5000,
+                             "url": "https://pncp.gov.br/api/consulta/v1/api2"})
+        cfg["alvos"].append({"id": "api3", "nome": "api3", "tipo": "api", "validar": "json_data", "limiar_lento_ms": 5000,
+                             "url": "https://pncp.gov.br/api/consulta/v1/api3"})
+        roteiro = Roteiro(self.relogio, **script)
+        self.inicios = []
+
+        def medir(a, c):
+            self.inicios.append((a["id"], self.mono[0]))
+            return roteiro(a, c)
+        s = core.Sonda(self.pasta, cfg, medir_fn=medir, agora_fn=self.relogio, dormir_fn=self.avancando(),
+                       notificar_fn=lambda t, m: None)
+        return s
+
+    def test_respeita_o_maximo_de_chamadas_a_consulta_por_janela(self):
+        self.sonda_consulta(max_chamadas=3).rodada()  # api, api2, api3: 3 chamadas cabem, sem esperar
+        t = dict(self.inicios)
+        self.assertLess(t["api3"] - t["api"], 15)
+        self.inicios.clear()
+        self.sonda_consulta(max_chamadas=2).rodada()  # só 2 por janela: a 3ª espera a 1ª sair dos 15 s
+        t = dict(self.inicios)
+        self.assertGreaterEqual(t["api3"] - t["api"], 15)
+
+    def test_429_na_consulta_pausa_40_s_e_registra_evento_e_support_id(self):
+        s = self.sonda_consulta(api=["429f5"])
+        s.rodada()
+        t = dict(self.inicios)
+        self.assertGreaterEqual(t["api2"] - t["api"], 40)  # a chamada seguinte à Consulta esperou o bloqueio
+        ev = [e for e in self.registros("evento") if e["evento"] == "pausa_apos_429"]
+        self.assertEqual((ev[0]["alvo"], ev[0]["pausa_s"]), ("api", 40.0))
+        r429 = [r for r in self.registros("sonda") if r["http"] == 429][0]
+        self.assertEqual(r429["support_id"], "14140211415192252686")
+        self.assertEqual([r["alvo"] for r in self.registros("sonda") if r["tentativa"] == 2], [])  # 429 não repete
+
+    def test_429_fora_da_consulta_nao_pausa(self):
+        s = self.sonda_consulta(portal=["429"])
+        s.rodada()
+        ev = [e for e in self.registros("evento") if e["evento"] == "pausa_apos_429"]
+        self.assertEqual(ev, [])
+
+    def test_support_id_vai_para_o_csv_de_ocorrencias(self):
+        s = self.sonda_consulta(api=["429f5"])
+        s.rodada()
+        out = rel.gerar_relatorio(self.pasta, 1, agora=self.relogio.t + timedelta(minutes=5))
+        with open(out / "3_ocorrencias.csv", encoding="utf-8-sig", newline="") as f:
+            linhas = list(csv.reader(f, delimiter=";"))
+        self.assertEqual(linhas[0][-1], "Support ID")
+        self.assertEqual(linhas[1][-1], "14140211415192252686")
+
+
 class TestEvidenciaParaDesenvolvedor(Base):
     def test_204_da_api_de_consulta_e_ok_sem_dados(self):
         m = {"curl_exit": 0, "http": 204, "_corpo": b"", "total_ms": 100}
@@ -678,9 +742,9 @@ class TestEvidenciaParaDesenvolvedor(Base):
         out = rel.gerar_relatorio(self.pasta, 1, agora=self.relogio.t + timedelta(minutes=1))
         with open(out / "3_ocorrencias.csv", encoding="utf-8-sig", newline="") as f:
             linhas = list(csv.reader(f, delimiter=";"))
-        self.assertEqual(linhas[0][-3:], ["URL", "Cabeçalhos da resposta", "Corpo da resposta (até 8 KB)"])
-        self.assertEqual(linhas[1][-3], "https://exemplo/x")
-        self.assertIn("banco de dados", linhas[1][-1])
+        self.assertEqual(linhas[0][-4:-1], ["URL", "Cabeçalhos da resposta", "Corpo da resposta (até 8 KB)"])
+        self.assertEqual(linhas[1][-4], "https://exemplo/x")
+        self.assertIn("banco de dados", linhas[1][-2])
         h = (out / "resumo_para_chamado.html").read_text(encoding="utf-8")
         self.assertIn("Como reproduzir", h)
         self.assertIn("203.0.113.9", h)

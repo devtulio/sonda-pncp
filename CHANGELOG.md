@@ -2,6 +2,29 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
+## [1.8.0] — 2026-10-27
+
+Resposta do PNCP ao chamado 62174410 (limites de requisição, sem bloqueio de IP, recomendações de uso
+da API): a sonda passa a respeitá-los com margem e a guardar o que o suporte pede.
+
+### Added
+- Chaves `consulta_max_chamadas` (3), `consulta_janela_s` (15) e `pausa_apos_429_s` (40) no `config.json`.
+  Antes de cada chamada à API de Consulta (`/api/consulta/`) a sonda espera, se preciso, para não passar de
+  3 chamadas a cada 15 s (a conta inclui as repetições após falha); o PNCP informou 5/15 s por IP na
+  classe mais restrita, e o limite soma outros programas na mesma rede. Antes a sonda chegava a exatamente
+  5 em 15 s, sem margem.
+- Depois de um HTTP 429 da API de Consulta, as chamadas seguintes a ela esperam 40 s (o bloqueio
+  informado) e a sonda grava o evento `pausa_apos_429` (`alvo`, `pausa_s`). Antes só pulava a repetição e
+  chamava o alvo seguinte 1,5 s depois.
+- Campo `support_id` nos registros `sonda` de falha/429 (o "Support ID" da página do WAF do PNCP) e coluna
+  `Support ID` no fim de `3_ocorrencias.csv`; o resumo HTML conta quantos 429 trazem o identificador.
+- Seção "Limites do PNCP e o que a sonda faz" no MANUAL, com os limites informados.
+
+### Fixed (testes; sem efeito na sonda)
+- O relógio falso dos testes é de 18/09/2026 e a retenção padrão (30 dias) fazia a sonda compactar e apagar o
+  log de teste quando o dia real passou de 18/10: 10 testes passaram a falhar em 27/10. `cfg_teste` agora
+  usa retenção de 36500 dias. (Mesma família de defeito do teste dependente da hora de 1.5.0.)
+
 ## [1.7.0] — 2026-09-23
 
 Evidência suficiente para quem vai corrigir o PNCP, não só para provar a queda.

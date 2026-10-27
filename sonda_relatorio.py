@@ -157,11 +157,11 @@ def gerar_relatorio(pasta, dias=7, agora=None):
                s["total_ms"], s.get("corpo_trecho", "")[:200].replace("\n", " "), s.get("pncp_ts_erro", ""),
                s["rodada"], s.get("url", ""),
                json.dumps(s.get("cabecalhos_completos") or s.get("cabecalhos") or {}, ensure_ascii=False),
-               s.get("corpo_trecho", "")] for s in sondas if s["resultado"] not in OKS]
+               s.get("corpo_trecho", ""), s.get("support_id", "")] for s in sondas if s["resultado"] not in OKS]
     _csv(out / "3_ocorrencias.csv", ["Início (local)", "UTC", "Alvo", "Tentativa", "Resultado", "Detalhe", "HTTP",
                                      "Erro do curl", "IP", "DNS (ms)", "TCP (ms)", "TLS (ms)", "TTFB (ms)",
                                      "Total (ms)", "Trecho do corpo", "Horário do erro segundo o PNCP",
-                                     "Rodada", "URL", "Cabeçalhos da resposta", "Corpo da resposta (até 8 KB)"],
+                                     "Rodada", "URL", "Cabeçalhos da resposta", "Corpo da resposta (até 8 KB)", "Support ID"],
          linhas)
 
     # 4) cobertura diária e 5) lacunas (ausência de registro NÃO é disponibilidade)
@@ -437,6 +437,8 @@ def _como_reproduzir(sondas, rodadas, cfg, nomes):
             ultima[s["alvo"]] = s
     if not ips and not ultima:
         return ""
+    com_id = sum(1 for s in sondas if s.get("support_id"))
+    n429 = f"; os {com_id} Support ID das páginas de limite excedido (HTTP 429) estão na coluna Support ID" if com_id else ""
     lin_ip = "".join(f"<li><code>{esc(ip)}</code> de {esc(a)} a {esc(b)} (UTC)</li>" for ip, (a, b) in ips.items()) \
         or "<li>não registrado (logs anteriores à 1.7.0)</li>"
     cmds = "\n".join(f'# {esc(nomes.get(a, a))} - última falha {esc(s["ts_utc"])}: {esc(s["detalhe"])}\n'
@@ -446,7 +448,7 @@ def _como_reproduzir(sondas, rodadas, cfg, nomes):
             f'por IPv4, a cada rodada):</p><ul class="nota">{lin_ip}</ul>'
             f'<p class="nota">O PNCP não devolve identificador de requisição: horário UTC + URL + IP localizam cada '
             f'chamada nos logs. Todas as ocorrências, com URL, cabeçalhos e corpo da resposta (até 8 KB), estão em '
-            f'3_ocorrencias.csv.</p><pre class="cmd">{cmds}</pre>')
+            f'3_ocorrencias.csv{n429}.</p><pre class="cmd">{cmds}</pre>')
 
 
 def _resumo_html(out, cfg, ini, fim, sondas, rodadas, janelas, n_lacunas, n_rejeitadas=0):
