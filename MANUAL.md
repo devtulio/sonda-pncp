@@ -248,7 +248,8 @@ não impede a sonda de medir: é registrada e o laço sobe mesmo assim.
 | `sonda_pncp.pyw --encerrar` | pede à instância em execução para encerrar | 0 se a Sonda **confirmou**, 1 se não (nenhuma sonda, ou outro programa na porta) |
 | `python sonda_pncp.pyw --uma-rodada` | uma rodada, imprime o registro da rodada (JSON) | 0 |
 | `python sonda_pncp.pyw --relatorio [N]` | relatório dos últimos N dias (1 a 365; padrão 7), imprime a pasta | 0 |
-| argumento desconhecido, ou N fora de 1–365 | imprime o uso e **não** sobe a sonda | 2 |
+| `python sonda_pncp.pyw --relatorio-mensal [AAAA-MM]` | relatório do mês inteiro (padrão: mês anterior; mês corrente vai até hoje) em `relatorios/relatorio-mensal-AAAA-MM/` | 0 (mês futuro: 1) |
+| argumento desconhecido, N fora de 1–365 ou mês fora do formato AAAA-MM | imprime o uso e **não** sobe a sonda | 2 |
 | `config.json` inválido nas opções acima | imprime o motivo | 1 |
 
 `--uma-rodada` **grava no log** como qualquer rodada. Use o `python` do
@@ -395,6 +396,11 @@ então vira a pasta do dia: se algo estiver aberto no Excel (o Windows não deix
 trocar a pasta), o relatório completo sai em `relatorio-AAAAMMDD-HHMMSS` e a
 pasta do dia fica intacta, em vez de misturar arquivos de duas gerações. Falha
 ao gerar pelo menu do ícone avisa por notificação.
+
+**Mensal:** `--relatorio-mensal [AAAA-MM]` gera o mesmo relatório para o mês inteiro em
+`relatorios/relatorio-mensal-AAAA-MM/` (uma pasta por mês; gerar de novo sobrescreve). Lê
+os logs do mês, inclusive os já compactados em `.gz`. Se a sonda só começou no meio do mês, a cobertura conta a
+partir do primeiro registro.
 
 ### `resumo_para_chamado.html`
 
@@ -560,7 +566,7 @@ primeiro é da API de Integração; a API de Consulta não tem endpoint de itens
 .venv\Scripts\python.exe -m unittest discover -s tests
 ```
 
-118 testes: a medição usa o `curl.exe` de verdade contra um servidor HTTP
+121 testes: a medição usa o `curl.exe` de verdade contra um servidor HTTP
 falso local (200, 204, 429, 503, 404, timeout, corpo inválido, conexão
 derrubada/recusada/DNS); a máquina de estados, as lacunas, o encerramento
 no meio da rodada, o registro ausente e o relatório rodam com relógio e

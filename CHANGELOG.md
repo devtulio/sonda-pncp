@@ -2,6 +2,15 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
+## [1.10.0] — 2026-11-08
+
+### Added
+- `sonda_pncp.pyw --relatorio-mensal [AAAA-MM]`: relatório do mês inteiro em `relatorios/relatorio-mensal-AAAA-MM/`
+  (mesmos 5 CSVs e HTML do relatório diário, período fixo do dia 1 ao último dia). Sem argumento, o mês
+  anterior; o mês corrente vai até hoje; mês futuro dá erro (saída 1) e formato inválido imprime o uso (saída 2).
+  Gerar de novo sobrescreve. Antes do primeiro registro da sonda não há cobertura inventada.
+- `gerar_relatorio` aceita `periodo=(ini, fim)` e `nome` (base do mensal; o comportamento de `--relatorio N` não muda).
+
 ## [1.9.0] — 2026-10-27
 
 ### Added

@@ -12,6 +12,7 @@ USO
   Linha de comando (use .venv\Scripts\python.exe):
     sonda_pncp.pyw --uma-rodada    uma verificacao e imprime o resultado
     sonda_pncp.pyw --relatorio N   relatorio dos ultimos N dias
+  sonda_pncp.pyw --relatorio-mensal AAAA-MM   relatorio do mes inteiro (sem argumento: mes anterior)
 
 O QUE MEDE
   2 controles (Google, Cloudflare) + 6 alvos PNCP: portal, api_contratacoes, api_contratos,

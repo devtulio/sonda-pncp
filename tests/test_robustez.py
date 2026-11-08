@@ -375,6 +375,23 @@ class TestRelatorioRobusto(Base):
         self.assertEqual(celulas, [], "há célula de CSV que o Excel executaria como fórmula")
         self.assertIn("'=HYPERLINK", (out / "3_ocorrencias.csv").read_text(encoding="utf-8-sig"))
 
+    def test_relatorio_mensal_cobre_so_o_mes_e_tem_pasta_propria(self):
+        agora = self.gravar_falhas("x")  # registros em 21/09/2026
+        out = rel.gerar_relatorio_mensal(self.pasta, 2026, 9, agora=datetime(2026, 11, 8, 12, 0))
+        self.assertEqual(out.name, "relatorio-mensal-2026-09")
+        self.assertIn("Período: 01/09/2026 a 30/09/2026", (out / "resumo_para_chamado.html").read_text(encoding="utf-8"))
+        self.assertEqual(len((out / "3_ocorrencias.csv").read_text(encoding="utf-8-sig").splitlines()), 7)  # 6 + cabeçalho
+        vazio = rel.gerar_relatorio_mensal(self.pasta, 2026, 8, agora=datetime(2026, 11, 8, 12, 0))
+        self.assertEqual(len((vazio / "3_ocorrencias.csv").read_text(encoding="utf-8-sig").splitlines()), 1)  # outro mês
+        self.assertEqual(agora.astimezone().month, 9)
+
+    def test_relatorio_mensal_do_mes_corrente_vai_ate_hoje_e_futuro_recusa(self):
+        hoje = datetime(2026, 9, 21, 18, 0)
+        out = rel.gerar_relatorio_mensal(self.pasta, 2026, 9, agora=hoje)
+        self.assertIn("Período: 01/09/2026 a 21/09/2026", (out / "resumo_para_chamado.html").read_text(encoding="utf-8"))
+        with self.assertRaises(ValueError):
+            rel.gerar_relatorio_mensal(self.pasta, 2026, 10, agora=hoje)
+
     def test_cobertura_comeca_no_primeiro_registro(self):
         agora = self.gravar_falhas("x")
         out = rel.gerar_relatorio(self.pasta, 7, agora=agora)
@@ -609,6 +626,15 @@ class TestBandeja(unittest.TestCase):
     def test_relatorio_com_dias_validos(self):
         self.assertEqual(self.mod.main(["--relatorio", "3"]), 0)
         self.assertTrue(list((self.pasta / "relatorios").glob("relatorio-*")))
+
+    def test_relatorio_mensal_na_linha_de_comando(self):
+        for args in (["--relatorio-mensal", "2026-13"], ["--relatorio-mensal", "2026-9"], ["--relatorio-mensal", "abc"],
+                     ["--relatorio-mensal", "٢٠٢٦-09"]):
+            self.assertEqual(self.mod.main(args), 2, args)
+        self.assertEqual(self.mod.main(["--relatorio-mensal", "2026-09"]), 0)
+        self.assertTrue((self.pasta / "relatorios" / "relatorio-mensal-2026-09").is_dir())
+        self.assertEqual(self.mod.main(["--relatorio-mensal"]), 0)  # sem argumento: mês anterior
+        self.assertEqual(self.mod.main(["--relatorio-mensal", "2999-01"]), 1)  # mês futuro: mensagem, não traceback
 
     def test_flags_de_linha_de_comando_com_config_invalido_falham_com_mensagem(self):
         (self.pasta / "config.json").write_text("{quebrado", encoding="utf-8")

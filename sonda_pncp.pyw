@@ -11,11 +11,13 @@ caso de o ícone estar escondido na área de "ícones ocultos".
 
 import json
 import os
+import re
 import socket
 import subprocess  # nosec B404
 import sys
 import threading
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent
@@ -27,7 +29,7 @@ import sonda_relatorio as relatorio  # noqa: E402
 STARTUP = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
 ATALHO = STARTUP / "Sonda PNCP.lnk"
 CORES = {"verde": (34, 166, 79), "amarelo": (240, 180, 0), "vermelho": (214, 48, 49), "cinza": (128, 128, 128)}
-FLAGS = ("--encerrar", "--uma-rodada", "--relatorio")
+FLAGS = ("--encerrar", "--uma-rodada", "--relatorio", "--relatorio-mensal")
 USO = ("uso: sonda_pncp.pyw [--uma-rodada | --encerrar | --relatorio [DIAS 1-365]]\n"
        "     (sem argumentos: sobe a sonda na bandeja)")
 INTERVALO_VIGIA_S = 30
@@ -298,6 +300,16 @@ def _dias(argv):
     return int(txt) if txt.isascii() and txt.isdigit() and 1 <= int(txt) <= 365 else None
 
 
+def _mes(argv):
+    """Argumento de --relatorio-mensal: ausente = mês anterior; senão AAAA-MM (None = inválido)."""
+    i = argv.index("--relatorio-mensal")
+    if len(argv) <= i + 1 or argv[i + 1].startswith("--"):
+        d = datetime.now().replace(day=1) - timedelta(days=1)
+        return d.year, d.month
+    m = re.fullmatch(r"(\d{4})-(0[1-9]|1[0-2])", argv[i + 1])
+    return (int(m[1]), int(m[2])) if m and m[1].isascii() else None
+
+
 def main(argv):
     if any(a.startswith("--") and a not in FLAGS for a in argv):
         print(USO, file=sys.stderr)  # antes, um erro de digitação subia a sonda na bandeja sem avisar
@@ -315,6 +327,13 @@ def main(argv):
                 print(USO, file=sys.stderr)
                 return 2
             print(relatorio.gerar_relatorio(RAIZ, dias))
+            return 0
+        if "--relatorio-mensal" in argv:
+            mes = _mes(argv)
+            if mes is None:
+                print(USO, file=sys.stderr)
+                return 2
+            print(relatorio.gerar_relatorio_mensal(RAIZ, *mes))
             return 0
     except ValueError as e:  # config.json inválido
         print(f"erro: {e}", file=sys.stderr)

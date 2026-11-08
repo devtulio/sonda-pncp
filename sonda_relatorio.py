@@ -86,17 +86,20 @@ MARCAS_PNCP = (("banco de dados", "Erro na comunicação com o banco de dados"),
                ("JDBC", "Failed to obtain JDBC Connection"), ("Bad gateway", "Bad gateway"))
 
 
-def gerar_relatorio(pasta, dias=7, agora=None):
-    """Gera 5 CSVs + resumo HTML em `relatorios/relatorio-AAAAMMDD/` (sobrescreve o do dia) e devolve a pasta."""
+def gerar_relatorio(pasta, dias=7, agora=None, periodo=None, nome=None):
+    """Gera 5 CSVs + resumo HTML em `relatorios/relatorio-AAAAMMDD/` (sobrescreve o do dia) e devolve a pasta.
+
+    `periodo=(ini, fim)` (datas) troca "os últimos `dias`" por um intervalo fixo, e `nome` troca o nome da pasta
+    (usados pelo relatório mensal)."""
     cfg = carregar_config(pasta)
     agora = (agora or datetime.now()).astimezone()
-    ini, fim = (agora - timedelta(days=dias - 1)).date(), agora.date()
+    ini, fim = periodo or ((agora - timedelta(days=dias - 1)).date(), agora.date())
     rejeitadas = []
     regs = list(ler_registros(pasta, ini, fim, rejeitadas))
     sondas = [r for r in regs if r["tipo"] == "sonda"]
     rodadas = sorted((r for r in regs if r["tipo"] == "rodada"), key=lambda r: r["ts_utc"])
     eventos = [r for r in regs if r["tipo"] == "evento"]
-    destino = Path(pasta) / "relatorios" / f"relatorio-{agora:%Y%m%d}"  # 1 por dia: gerar de novo sobrescreve
+    destino = Path(pasta) / "relatorios" / (nome or f"relatorio-{agora:%Y%m%d}")  # 1 por dia: gerar de novo sobrescreve
     # tudo é gerado numa pasta de trabalho e só então vira a pasta do dia: falha no meio não deixa arquivos de
     # duas gerações misturados (o que acontece se um CSV estiver aberto no Excel e a cópia parar no meio)
     out = destino.with_name(destino.name + ".novo")
@@ -195,6 +198,18 @@ def gerar_relatorio(pasta, dias=7, agora=None):
                                  "Causa provável"], linhas)
     _resumo_html(out, cfg, ini, fim, sondas, rodadas, jan, len(linhas), len(rejeitadas))
     return _publicar(out, destino, agora)
+
+
+def gerar_relatorio_mensal(pasta, ano, mes, agora=None):
+    """Relatório do mês `ano`-`mes` inteiro em `relatorios/relatorio-mensal-AAAA-MM/`. Mês corrente vai até hoje;
+    mês futuro é ValueError. Antes do primeiro registro da sonda não há cobertura inventada (ver gerar_relatorio)."""
+    agora = (agora or datetime.now()).astimezone()
+    ini = datetime(ano, mes, 1).date()
+    if ini > agora.date():
+        raise ValueError(f"{mes:02d}/{ano} ainda não começou")
+    ultimo = (datetime(ano + (mes == 12), mes % 12 + 1, 1) - timedelta(days=1)).date()
+    return gerar_relatorio(pasta, agora=agora, periodo=(ini, min(ultimo, agora.date())),
+                           nome=f"relatorio-mensal-{ano:04d}-{mes:02d}")
 
 
 def _publicar(pronta, destino, agora):

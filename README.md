@@ -55,6 +55,7 @@ Linha de comando (use o Python do `.venv`):
 ```bat
 .venv\Scripts\python.exe sonda_pncp.pyw --uma-rodada    uma verificação, imprime o resultado
 .venv\Scripts\python.exe sonda_pncp.pyw --relatorio 7   relatório dos últimos 7 dias
+.venv\Scripts\python.exe sonda_pncp.pyw --relatorio-mensal 2026-10   relatório do mês (sem argumento: mês anterior)
 ```
 
 ## Relatório para o chamado
