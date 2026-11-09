@@ -562,6 +562,21 @@ class TestBandeja(unittest.TestCase):
         self.addCleanup(primeira.close)
         self.assertIsNone(self.mod._tomar_instancia(porta))  # a segunda não consegue
 
+    def test_reinicio_espera_a_instancia_antiga_soltar_a_porta(self):
+        porta = porta_livre()
+        antiga = self.mod._tomar_instancia(porta)
+        threading.Timer(1.0, antiga.close).start()  # a antiga solta a porta ao encerrar
+        nova = self.mod._tomar_instancia_esperando(porta, espera_s=10)
+        self.assertIsNotNone(nova)
+        self.addCleanup(nova.close)
+        # porta que nunca libera: desiste no prazo em vez de travar
+        presa = self.mod._tomar_instancia(porta_livre())
+        self.addCleanup(presa.close)
+        self.assertIsNone(self.mod._tomar_instancia_esperando(presa.getsockname()[1], espera_s=0.6))
+
+    def test_flag_aguardar_e_aceita_na_linha_de_comando(self):
+        self.assertIn("--aguardar", self.mod.FLAGS)
+
     def test_ping_reconhece_uma_sonda_e_rejeita_outro_programa(self):
         porta = porta_livre()
         srv = self.mod._tomar_instancia(porta)

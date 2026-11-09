@@ -2,6 +2,20 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
+## [Não publicado]
+
+### Added
+- Menu da bandeja: **Reiniciar**, acima de *Encerrar*. Sobe uma nova Sonda desligada da atual (`--aguardar`: espera até
+  30 s a porta da instância única ficar livre) e só então encerra a atual, com `motivo: "reiniciar"` em
+  `sonda_encerrada`. Se a nova não puder subir, a atual continua e há notificação. Antes era preciso *Encerrar* e
+  abrir de novo à mão.
+- Ícone de radar: `sonda.ico` (7 tamanhos, 16 a 256 px, para atalhos) e `gerar_icone.py` (regenera o arquivo e
+  `docs/img/icone-radar.png`).
+
+### Changed
+- O ícone da bandeja deixou de ser a letra "S" e passou a ser o radar. O disco continua carregando a cor de estado
+  (verde, amarelo, vermelho, cinza), que é o que se lê a 16 px; as cores e a regra de estado não mudaram.
+
 ## [1.10.0] — 2026-11-08
 
 ### Added

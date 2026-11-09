@@ -9,6 +9,7 @@ O ícone na bandeja é a forma normal de encerrar (menu "Encerrar"); `--encerrar
 caso de o ícone estar escondido na área de "ícones ocultos".
 """
 
+import functools
 import json
 import os
 import re
@@ -29,7 +30,7 @@ import sonda_relatorio as relatorio  # noqa: E402
 STARTUP = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
 ATALHO = STARTUP / "Sonda PNCP.lnk"
 CORES = {"verde": (34, 166, 79), "amarelo": (240, 180, 0), "vermelho": (214, 48, 49), "cinza": (128, 128, 128)}
-FLAGS = ("--encerrar", "--uma-rodada", "--relatorio", "--relatorio-mensal")
+FLAGS = ("--encerrar", "--uma-rodada", "--relatorio", "--relatorio-mensal", "--aguardar")
 USO = ("uso: sonda_pncp.pyw [--uma-rodada | --encerrar | --relatorio [DIAS 1-365]]\n"
        "     (sem argumentos: sobe a sonda na bandeja)")
 INTERVALO_VIGIA_S = 30
@@ -164,16 +165,51 @@ def _notificar(titulo, msg):
         core.avisar_texto(RAIZ, f"notificação não exibida ({titulo}: {msg}): {e!r}")  # acessório: nunca derruba a sonda
 
 
+@functools.cache  # 4 cores: desenha uma vez cada
 def _desenhar(cor):
-    from PIL import Image, ImageDraw, ImageFont
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    """Radar: o disco carrega a cor de estado (é o que se lê a 16 px); anéis e ponteiro em branco."""
+    from PIL import Image, ImageDraw
+    S, c, R = 512, 256, 232  # desenha grande e reduz (serrilhado)
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.ellipse((4, 4, 60, 60), fill=CORES[cor] + (255,), outline=(30, 30, 30, 255), width=3)
-    d.text((32, 33), "S", fill=(255, 255, 255, 255), font=ImageFont.load_default(size=34), anchor="mm")
-    return img
+    d.ellipse((c - R, c - R, c + R, c + R), fill=CORES[cor] + (255,), outline=(30, 30, 30, 255), width=34)
+    ov = Image.new("RGBA", (S, S), (0, 0, 0, 0))  # anéis translúcidos: compor, não sobrescrever
+    o = ImageDraw.Draw(ov)
+    anel = (255, 255, 255, 120)
+    for r in (R * 2 // 3, R // 3):
+        o.ellipse((c - r, c - r, c + r, c + r), outline=anel, width=16)
+    o.line((c - R + 34, c, c + R - 34, c), fill=anel, width=16)
+    o.line((c, c - R + 34, c, c + R - 34), fill=anel, width=16)
+    img.alpha_composite(ov)
+    d = ImageDraw.Draw(img)
+    d.line((c, c, c + 150, c - 180), fill=(255, 255, 255, 255), width=40)  # ponteiro
+    d.ellipse((c - 36, c - 36, c + 36, c + 36), fill=(255, 255, 255, 255))
+    d.ellipse((c + 70, c - 40, c + 150, c + 40), fill=(30, 30, 30, 255))  # alvo
+    return img.resize((64, 64), Image.LANCZOS)
 
 
-def bandeja():
+def _tomar_instancia_esperando(porta, espera_s=30):
+    """Usado no reinício: a instância antiga ainda segura a porta por alguns instantes depois de pedir para sair."""
+    fim = time.monotonic() + espera_s
+    while True:
+        srv = _tomar_instancia(porta)
+        if srv is not None or time.monotonic() >= fim:
+            return srv
+        time.sleep(0.5)
+
+
+def _relancar():
+    """Sobe uma nova Sonda, desligada desta, que espera a porta ficar livre (`--aguardar`). Devolve se subiu."""
+    exe = Path(sys.executable).with_name("pythonw.exe")
+    flags = core.CREATE_NO_WINDOW | getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+        subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    subprocess.Popen([str(exe if exe.exists() else sys.executable), str(RAIZ / "sonda_pncp.pyw"), "--aguardar"],  # nosec B603
+                     cwd=RAIZ, creationflags=flags, close_fds=True,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return True
+
+
+def bandeja(aguardar=False):
     _sem_console()
     try:
         cfg = core.carregar_config(RAIZ)
@@ -181,7 +217,7 @@ def bandeja():
         _falha_de_partida(f"Não foi possível ler o config.json:\n\n{e}")
         return 1
     porta = cfg["porta_instancia"]
-    srv = _tomar_instancia(porta)
+    srv = _tomar_instancia_esperando(porta) if aguardar else _tomar_instancia(porta)
     if srv is None:
         if _pingar(porta):  # já existe uma Sonda PNCP rodando: nada a fazer
             return 0
@@ -209,6 +245,15 @@ def bandeja():
                 holder["icone"].stop()
         except Exception as e:  # noqa: BLE001
             sonda.registrar_erro(e)
+
+    def reiniciar():
+        try:
+            _relancar()  # a nova espera a porta; só então esta encerra
+        except Exception as e:  # noqa: BLE001
+            sonda.registrar_erro(e)
+            _notificar("Sonda PNCP: não reiniciou", str(e)[:200])
+            return  # sem nova instância, não derruba a atual
+        encerrar("reiniciar")
 
     def gerar():
         try:
@@ -243,6 +288,7 @@ def bandeja():
                          checked=lambda _i: sonda.pausada),
         pystray.MenuItem("Iniciar com o Windows", alternar_autostart, checked=lambda _i: autostart_ativo()),
         pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Reiniciar", lambda _i, _it: reiniciar()),
         pystray.MenuItem("Encerrar", lambda _i, _it: encerrar()),
     )
 
@@ -338,7 +384,7 @@ def main(argv):
     except ValueError as e:  # config.json inválido
         print(f"erro: {e}", file=sys.stderr)
         return 1
-    return bandeja()
+    return bandeja("--aguardar" in argv)
 
 
 if __name__ == "__main__":

@@ -221,7 +221,9 @@ rodadas que não foram `falha` ÷ rodadas `ok`/`degradado`/`falha`
 (desabilitada, só informativa). Depois: *Verificar agora* (dispara uma
 rodada; desabilitado se pausada), *Abrir pasta de logs*, *Gerar relatório
 (últimos 7 dias)* (gera e abre a pasta), *Pausar sonda* (marcável),
-*Iniciar com o Windows* (marcável), *Encerrar*.
+*Iniciar com o Windows* (marcável), *Reiniciar* (sobe uma nova Sonda e encerra a atual; ver abaixo) e *Encerrar*.
+O desenho do ícone é um radar; o disco carrega a cor de estado. O arquivo `sonda.ico` serve para atalhos
+(`gerar_icone.py` o regenera).
 
 **Vigia:** uma thread confere a cada 30 s se o laço de medição continua vivo.
 Se a thread do laço terminou sem ninguém ter pedido, ou se ela está viva mas
@@ -246,6 +248,7 @@ não impede a sonda de medir: é registrada e o laço sobe mesmo assim.
 |---|---|---|
 | `pythonw sonda_pncp.pyw` | sobe na bandeja | 0 |
 | `sonda_pncp.pyw --encerrar` | pede à instância em execução para encerrar | 0 se a Sonda **confirmou**, 1 se não (nenhuma sonda, ou outro programa na porta) |
+| `pythonw sonda_pncp.pyw --aguardar` | como sem argumentos, mas espera até 30 s a porta ficar livre; é o que o menu *Reiniciar* usa | 0 |
 | `python sonda_pncp.pyw --uma-rodada` | uma rodada, imprime o registro da rodada (JSON) | 0 |
 | `python sonda_pncp.pyw --relatorio [N]` | relatório dos últimos N dias (1 a 365; padrão 7), imprime a pasta | 0 |
 | `python sonda_pncp.pyw --relatorio-mensal [AAAA-MM]` | relatório do mês inteiro (padrão: mês anterior; mês corrente vai até hoje) em `relatorios/relatorio-mensal-AAAA-MM/` | 0 (mês futuro: 1) |
@@ -372,7 +375,7 @@ localiza uma chamada nos logs dele).
 | `evento` | Quando | Campos extras |
 |---|---|---|
 | `sonda_iniciada` | ao subir | `versao`, `host`, `python`, `intervalo_normal_s`, `ultimo_registro_anterior`, `gap_desde_anterior_s`, `encerramento_anterior_limpo`, `pc_reiniciou` e `pc_parado_s` (1.6.0+; ver abaixo), `uptime_pc_s` (segundos desde o boot do Windows; **não** distingue o "Desligar" com Inicialização Rápida, que é hibernação e não zera o contador: use `pc_parado_s`) |
-| `sonda_encerrada` | ao encerrar | `motivo` (`menu`, `comando_encerrar`, `saida_inesperada`), `rodadas` |
+| `sonda_encerrada` | ao encerrar | `motivo` (`menu`, `reiniciar`, `comando_encerrar`, `saida_inesperada`), `rodadas` |
 | `mudanca_estado` | a cor do ícone mudou | `de`, `para`, `estado_rodada`, `falhas` |
 | `mudanca_ip` | um alvo **do PNCP** passou a responder de outro IP (os controles trocam de IP a cada consulta por balanceamento: seriam só ruído) | `alvo`, `de`, `para` |
 | `retomada_apos_lacuna` | intervalo entre rodadas muito maior que o esperado | `lacuna_s`, `desde`, `motivo` (`pausa_manual` ou `suspensao_ou_indisponibilidade`) |
@@ -557,8 +560,8 @@ primeiro é da API de Integração; a API de Consulta não tem endpoint de itens
   Notificações.
 - **Um alvo aparece sempre como falha ou registro ausente:** confira a URL
   no navegador; troque a `compra_teste` (ver [Órgão e compra de teste](#órgão-e-compra-de-teste)) se ela sumiu.
-- **Reiniciar:** *Encerrar* pelo menu (ou `--encerrar`) e abrir de novo.
-  Cria uma lacuna de segundos, registrada.
+- **Reiniciar:** menu *Reiniciar* (ou *Encerrar* e abrir de novo, ou `--encerrar`).
+  Cria uma lacuna de segundos, registrada com `motivo: reiniciar`.
 
 ## Testes
 
@@ -566,7 +569,7 @@ primeiro é da API de Integração; a API de Consulta não tem endpoint de itens
 .venv\Scripts\python.exe -m unittest discover -s tests
 ```
 
-121 testes: a medição usa o `curl.exe` de verdade contra um servidor HTTP
+123 testes: a medição usa o `curl.exe` de verdade contra um servidor HTTP
 falso local (200, 204, 429, 503, 404, timeout, corpo inválido, conexão
 derrubada/recusada/DNS); a máquina de estados, as lacunas, o encerramento
 no meio da rodada, o registro ausente e o relatório rodam com relógio e

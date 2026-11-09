@@ -48,7 +48,7 @@ O ícone da bandeja muda de cor: **verde** = tudo ok, **amarelo** =
 degradado ou 1 rodada com falha, **vermelho** = 2 rodadas seguidas com
 falha (dispara notificação do Windows), **cinza** = sem rede local ou
 pausada. Menu: Verificar agora, Abrir pasta de logs, Gerar relatório
-(últimos 7 dias), Pausar sonda, Iniciar com o Windows, Encerrar.
+(últimos 7 dias), Pausar sonda, Iniciar com o Windows, Reiniciar, Encerrar.
 
 Linha de comando (use o Python do `.venv`):
 
