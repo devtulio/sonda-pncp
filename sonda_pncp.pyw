@@ -203,9 +203,9 @@ def _relancar():
     exe = Path(sys.executable).with_name("pythonw.exe")
     flags = core.CREATE_NO_WINDOW | getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
         subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    subprocess.Popen([str(exe if exe.exists() else sys.executable), str(RAIZ / "sonda_pncp.pyw"), "--aguardar"],  # nosec B603
+    subprocess.Popen([str(exe if exe.exists() else sys.executable), str(RAIZ / "sonda_pncp.pyw"), "--aguardar"],
                      cwd=RAIZ, creationflags=flags, close_fds=True,
-                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # nosec B603
     return True
 
 

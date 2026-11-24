@@ -10,8 +10,9 @@ adaptado ao que a sonda expõe.
 Só isto é coberto pelo número de versão:
 
 - **Linha de comando** de `sonda_pncp.pyw`: as flags `--encerrar`,
-  `--uma-rodada` e `--relatorio [N]`, seus códigos de saída e o que
-  imprimem.
+  `--uma-rodada`, `--relatorio [N]` e `--relatorio-mensal [AAAA-MM]`, seus
+  códigos de saída e o que imprimem. `--aguardar` é **interna** (o menu
+  *Reiniciar* a usa) e não faz parte do contrato.
 - **`config.json`**: nome, significado e tipo de cada chave e dos campos
   de cada alvo (`id`, `tipo`, `validar`, `url`, `limiar_lento_ms`,
   `accept`, `ausencia_404`); os marcadores de URL (`{hoje}`, `{cnpj}`, `{ano_compra}`,
@@ -91,6 +92,33 @@ corrigido mais rápido (Khomh et al.).
    `*.visual-check.*` que o Archify deixa ao lado.
 8. Reiniciar a sonda em uso para ela passar a rodar a versão nova: o
    processo em execução não relê o código nem o `config.json`.
+
+## 5.1 Documentação: guarda e checklist por tipo de mudança
+
+A documentação entra no **mesmo commit** da mudança. O que dá para medir é
+barrado por `tests/test_documentacao.py` (roda no `unittest discover`, no
+CI e, se instalado, no hook de pré-commit): versão do código = última seção
+numerada do CHANGELOG; toda flag no MANUAL, e as do contrato também aqui;
+todo item do menu da bandeja no MANUAL, README e LEIA-ME; todo motivo de
+`sonda_encerrada` no MANUAL; a contagem de testes do MANUAL; os documentos
+da raiz listados no README. O hook (não é versionado) se instala com:
+
+```bash
+printf '#!/bin/sh
+python -m unittest tests.test_documentacao -q || exit 1
+' > .git/hooks/pre-commit
+```
+
+O que o teste **não** mede, e fica no checklist de quem muda:
+
+| Mudou | Conferir à mão |
+|---|---|
+| Item de menu ou ícone | MANUAL ("Bandeja e linha de comando"), README, LEIA-ME; se o desenho do ícone mudou, rodar `gerar_icone.py` |
+| Flag nova da linha de comando | MANUAL (tabela de comandos), `USO` em `sonda_pncp.pyw`, seção 1 deste arquivo (contrato ou "interna") |
+| Campo de log, CSV ou relatório | MANUAL (tabelas de eventos e do relatório), seção 1 deste arquivo |
+| Limite do PNCP ou resposta oficial | MANUAL ("Limites do PNCP e o que a sonda faz") e a memória da sonda |
+| Alvo ou URL padrão | MANUAL (tabela de alvos), `docs/` (diagramas) |
+| Release | auditoria de **toda** a documentação ("o que um leitor novo não acharia?"), não só do que mudou |
 
 ## 6. Depreciação
 

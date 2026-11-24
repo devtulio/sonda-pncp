@@ -569,12 +569,15 @@ primeiro é da API de Integração; a API de Consulta não tem endpoint de itens
 .venv\Scripts\python.exe -m unittest discover -s tests
 ```
 
-123 testes: a medição usa o `curl.exe` de verdade contra um servidor HTTP
+129 testes: a medição usa o `curl.exe` de verdade contra um servidor HTTP
 falso local (200, 204, 429, 503, 404, timeout, corpo inválido, conexão
 derrubada/recusada/DNS); a máquina de estados, as lacunas, o encerramento
 no meio da rodada, o registro ausente e o relatório rodam com relógio e
 medição falsos, sem rede. `tests/test_robustez.py` reproduz falhas do ambiente
 (log que falha, config inválido, disco cheio, arquivo travado, log estragado,
 porta ocupada por outro programa, CSV com fórmula) e testa a bandeja
-(`sonda_pncp.pyw`: instância única, `ping`/`encerrar`, argumentos, partida). O smoke contra o PNCP real (`--uma-rodada`) é
+(`sonda_pncp.pyw`: instância única, `ping`/`encerrar`, argumentos, partida, espera da porta no reinício).
+`tests/test_documentacao.py` é a **guarda de documentação**: falha se a versão do código não for a última do
+CHANGELOG, se uma flag, item de menu ou motivo de encerramento não estiver nos documentos, se a contagem de testes
+acima estiver errada ou se o README apontar para arquivo inexistente (checklist do que ela não mede: RELEASING, 5.1). O smoke contra o PNCP real (`--uma-rodada`) é
 manual e obrigatório antes de uma versão com mudança de comportamento.

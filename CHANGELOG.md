@@ -12,7 +12,11 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 - Ícone de radar: `sonda.ico` (7 tamanhos, 16 a 256 px, para atalhos) e `gerar_icone.py` (regenera o arquivo e
   `docs/img/icone-radar.png`).
 
+- `tests/test_documentacao.py`: guarda de documentação (versão x CHANGELOG, flags, menu, motivos de encerramento,
+  contagem de testes, documentos do README) e checklist por tipo de mudança em `RELEASING.md` (5.1).
+
 ### Changed
+- `RELEASING.md` (contrato): lista `--relatorio-mensal` (faltava desde a 1.10.0) e declara `--aguardar` como interna.
 - O ícone da bandeja deixou de ser a letra "S" e passou a ser o radar. O disco continua carregando a cor de estado
   (verde, amarelo, vermelho, cinza), que é o que se lê a 16 px; as cores e a regra de estado não mudaram.
 
