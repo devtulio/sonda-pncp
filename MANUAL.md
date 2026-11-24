@@ -304,7 +304,10 @@ um `config.json` que já existe: edite o arquivo.
 
 Os limiares `limiar_lento_ms` iniciais são **folgados de propósito**
 (4 s portal/controles, 5–20 s por API): a linha de base era desconhecida.
-Recalibre pelo p95 do relatório depois de ~7 dias de dados.
+Em 08/11/2026, com ~14.400 medições por endpoint (out/nov), o limite de «lento» por alvo
+separou bem os serviços (contratações com mediana de 0,2 s, contratos com 4,6 s) e **foi mantido**:
+recalibrar quebraria a comparação com a série desde 20/09. Só recalibre com um motivo medido,
+e anote a data da mudança no CHANGELOG.
 
 Mudanças no `config.json` só valem depois de reiniciar a sonda.
 
@@ -497,7 +500,44 @@ derrubar a sonda. O toast mostra só a primeira linha da mensagem.
 
 ## Limites do PNCP e o que a sonda faz
 
-Resposta oficial do PNCP (chamado 62174410, 27/10/2026), por IP de origem: API de
+**Mapa por endpoint (resposta ao chamado 64307736, 24/11/2026).** O PNCP passou a dizer a
+classe de cada endpoint. Limites por IP de origem:
+
+| API | Endpoint | Limite | Bloqueio ao exceder | Registros por página |
+|---|---|---|---|---|
+| Consulta | `/v1/contratacoes/publicacao` | 5 em 15 s | 40 s | 10 a 50 |
+| Consulta | `/v1/orgaos/{cnpj}/compras/{ano}/{sequencial}` | 5 em 15 s | 40 s | sem paginação |
+| Consulta | `/v1/contratacoes/proposta` e `/v1/contratacoes/atualizacao` | 5 em 5 s | 20 s | 10 a 50 |
+| Consulta | `/v1/atas` e `/v1/atas/atualizacao` | 5 em 5 s | 20 s | 10 a 500 |
+| Consulta | `/v1/contratos` e `/v1/contratos/atualizacao` | 5 em 5 s | 20 s | 10 a 500 |
+| Consulta | `/v1/pca/`, `/v1/pca/usuario` e `/v1/pca/atualizacao` | 5 em 5 s | 20 s | 10 a 500 |
+| Integração (itens e resultados) | seções 11.13 e 11.17 do Manual de Integração | 150 em 10 s | 5 s | — |
+
+A classe «geral» (50 em 10 s) do chamado anterior não aparece em nenhum endpoint listado. O PNCP
+**não recomenda frequência nem horário** para coletas volumosas, **não tem carga em massa** (CSV,
+JSON, Parquet) nem feed de mudanças; os `*/atualizacao` consultam por data de atualização global
+(`dataAtualizacaoGlobal` nas contratações inclui mudanças em itens, resultados e documentos). Em
+429, aguardar o bloqueio **da classe do endpoint**.
+
+**Onde a sonda se encaixa.** Por rodada ela chama `contratacoes/publicacao` (5 em 15 s, a classe
+mais restrita), `contratos/atualizacao`, `atas/atualizacao` e `pca/atualizacao` (5 em 5 s), todas
+com `tamanhoPagina=10`, e `…/compras/{ano}/{seq}/itens` na Integração (150 em 10 s). Em modo normal
+são ~0,8 chamada por minuto à Consulta; em incidente, ~4 por minuto; o teto próprio é de 3 a cada
+15 s. A sonda é mais cautelosa que o necessário para os três endpoints da classe 5 em 5 s, de
+propósito: o limite soma todo o tráfego do mesmo IP.
+
+**O que a série mostrou (22/09 a 24/11/2026).** Houve 188 respostas HTTP 429, a última em
+27/10/2026 às 17:49. Delas, 159 foram em `contratacoes/publicacao` (a classe mais restrita) e 29 em
+`atas/atualizacao`; nenhuma em contratos, PCA ou itens. De 28/10 a 24/11 foram **zero 429 em 81.815
+chamadas**, inclusive nas 3.613 chamadas feitas enquanto outro programa da máquina consultava a
+Consulta a 15 vezes por minuto ou mais. A mudança coincide com a 1.8.0 da sonda (limitador próprio)
+e com o ritmo coordenado do `motor_pncp` 1.8.0, ambos de 27/10: é do lado de quem chama, não uma
+mudança do PNCP. Como as duas mudanças são simultâneas, a série não separa o efeito de cada uma.
+Zero 429 com o outro programa a ~5 chamadas por 15 s somadas às da sonda também sugere que o
+contador é por endpoint ou classe, e não por host inteiro (inferência, não medida por janela de
+15 s).
+
+**Resposta ao chamado 62174410 (27/10/2026)**, por IP de origem: API de
 Consulta, classe mais restrita, 5 requisições a cada 15 s (bloqueio de 40 s); classe
 intermediária, 5 a cada 5 s (20 s); classe geral, 50 a cada 10 s (10 s); API de
 Integração, 150 a cada 10 s (5 s). A classe de cada endpoint não é informada, e os
@@ -569,7 +609,7 @@ primeiro é da API de Integração; a API de Consulta não tem endpoint de itens
 .venv\Scripts\python.exe -m unittest discover -s tests
 ```
 
-129 testes: a medição usa o `curl.exe` de verdade contra um servidor HTTP
+130 testes: a medição usa o `curl.exe` de verdade contra um servidor HTTP
 falso local (200, 204, 429, 503, 404, timeout, corpo inválido, conexão
 derrubada/recusada/DNS); a máquina de estados, as lacunas, o encerramento
 no meio da rodada, o registro ausente e o relatório rodam com relógio e

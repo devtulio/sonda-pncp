@@ -36,6 +36,11 @@ class TestDocumentacao(unittest.TestCase):
         self.assertEqual(self.mod.core.VERSAO, numeradas[0],
                          "sonda_core.VERSAO deve ser a 1ª seção numerada do CHANGELOG (a de cima é `Não publicado`)")
 
+    def test_versao_citada_no_leia_me(self):
+        m = re.match(r"SONDA PNCP v(\d+\.\d+\.\d+)", ler("LEIA-ME.txt"))
+        self.assertIsNotNone(m, "LEIA-ME.txt deve começar com «SONDA PNCP vX.Y.Z»")
+        self.assertEqual(m[1], self.mod.core.VERSAO, "versão do cabeçalho do LEIA-ME diferente da do código")
+
     def test_toda_flag_esta_no_manual_e_as_do_contrato_no_releasing(self):
         manual, rel = ler("MANUAL.md"), ler("RELEASING.md")
         for f in self.mod.FLAGS:

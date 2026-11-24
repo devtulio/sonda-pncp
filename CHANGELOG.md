@@ -2,7 +2,7 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
-## [Não publicado]
+## [1.10.1] — 2026-11-24
 
 ### Added
 - Menu da bandeja: **Reiniciar**, acima de *Encerrar*. Sobe uma nova Sonda desligada da atual (`--aguardar`: espera até
@@ -16,6 +16,11 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
   contagem de testes, documentos do README) e checklist por tipo de mudança em `RELEASING.md` (5.1).
 
 ### Changed
+- Documentação: MANUAL («Limites do PNCP e o que a sonda faz») ganha o mapa de limites **por endpoint** da resposta
+  do chamado 64307736 (24/11/2026), onde a sonda se encaixa e o que a série mostrou: 188 HTTP 429 (22/09 a 27/10), o
+  último em 27/10 17:49, e zero em 81.815 chamadas de 28/10 a 24/11. Decisão de manter os limiares «lento»
+  (medidos em 08/11) registrada no MANUAL; `LEIA-ME.txt` estava em «v1.1.0» e agora é conferido pela guarda;
+  README com o ícone e as classes de limite.
 - `RELEASING.md` (contrato): lista `--relatorio-mensal` (faltava desde a 1.10.0) e declara `--aguardar` como interna.
 - O ícone da bandeja deixou de ser a letra "S" e passou a ser o radar. O disco continua carregando a cor de estado
   (verde, amarelo, vermelho, cinza), que é o que se lê a 16 px; as cores e a regra de estado não mudaram.

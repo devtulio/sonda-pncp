@@ -1,5 +1,5 @@
-SONDA PNCP v1.1.0
-=================
+SONDA PNCP v1.10.1
+==================
 Mede a disponibilidade do PNCP (portal + APIs) em segundo plano e grava um log por dia.
 
 USO
@@ -12,7 +12,8 @@ USO
   Linha de comando (use .venv\Scripts\python.exe):
     sonda_pncp.pyw --uma-rodada    uma verificacao e imprime o resultado
     sonda_pncp.pyw --relatorio N   relatorio dos ultimos N dias
-  sonda_pncp.pyw --relatorio-mensal AAAA-MM   relatorio do mes inteiro (sem argumento: mes anterior)
+    sonda_pncp.pyw --relatorio-mensal AAAA-MM   relatorio do mes inteiro (sem argumento: mes anterior)
+  sonda.ico e o icone de radar, para atalhos (gerar_icone.py o regenera).
 
 O QUE MEDE
   2 controles (Google, Cloudflare) + 6 alvos PNCP: portal, api_contratacoes, api_contratos,
@@ -46,6 +47,7 @@ DOCUMENTACAO
 
 LIMITES
   Um unico ponto de observacao e so mede com o PC ligado (lacunas ficam registradas).
-  Limiares iniciais sao folgados: recalibrar apos ~7 dias pelo p95 do relatorio.
+  Limiares de "lento" por alvo medidos em out/nov (08/11/2026) e mantidos; recalibrar so com motivo medido
+  (muda a serie). Ver MANUAL, "Configuracao".
   Para remover o inicio automatico: menu "Iniciar com o Windows" (desmarcar) ou apagar
   %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Sonda PNCP.lnk

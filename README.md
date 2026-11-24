@@ -44,7 +44,9 @@ Iniciar Sonda PNCP.cmd     sobe na bandeja (segunda execução não duplica)
 Encerrar Sonda PNCP.cmd    encerra a instância em execução
 ```
 
-O ícone da bandeja muda de cor: **verde** = tudo ok, **amarelo** =
+![Ícone de radar da Sonda PNCP](docs/img/icone-radar.png)
+
+O ícone da bandeja é um radar e muda de cor: **verde** = tudo ok, **amarelo** =
 degradado ou 1 rodada com falha, **vermelho** = 2 rodadas seguidas com
 falha (dispara notificação do Windows), **cinza** = sem rede local ou
 pausada. Menu: Verificar agora, Abrir pasta de logs, Gerar relatório
@@ -125,7 +127,7 @@ classificação de erros, máquina de estados, lacunas, relatório).
   público de origem e um `curl` para reproduzir: o PNCP não devolve ID de
   requisição, então horário UTC + URL + IP é o que acha a chamada nos logs deles.
 - **Educada com o PNCP.** O PNCP limita por IP (5 requisições a cada 15 s na classe mais restrita da API de
-  Consulta, bloqueio de 40 s). A sonda faz no máximo 3 chamadas a cada 15 s à Consulta, em sequência, e
+  Consulta, bloqueio de 40 s; 5 a cada 5 s nos demais endpoints da Consulta, 150 a cada 10 s na Integração). A sonda faz no máximo 3 chamadas a cada 15 s à Consulta, em sequência, e
   em cada 429 grava o Support ID e há quanto tempo outro programa da máquina (o `motor_pncp`) requisitou
   o PNCP: o limite soma todo o tráfego do mesmo IP. Ver [MANUAL.md](MANUAL.md#limites-do-pncp-e-o-que-a-sonda-faz).
 - **A sonda não morre calada.** Erro interno vira evento no log e linha em
